@@ -1,0 +1,137 @@
+void loop() {
+  static unsigned long lastUpdate = 0;
+  unsigned long now = millis();
+  float deltaTime = (now - lastUpdate) / 1000.0f;
+  
+  // Cap deltaTime to prevent large jumps
+  if (deltaTime > 0.033f) deltaTime = 0.033f;  // Max 30 FPS
+  lastUpdate = now;
+  
+  readButtons();
+  
+  // Environmental Game State Machine
+  switch(currentState) {
+    case STATE_WIFI_CONNECTING:
+      // Show connecting animation
+      if (now % 500 < 250) {
+        fill_solid(stripPM25, LEDS_PER_STRIP, CRGB::Blue);
+        fill_solid(stripNO2, LEDS_PER_STRIP, CRGB::Black);
+        fill_solid(stripO3, LEDS_PER_STRIP, CRGB::Black);
+      } else {
+        fill_solid(stripPM25, LEDS_PER_STRIP, CRGB::Black);
+        fill_solid(stripNO2, LEDS_PER_STRIP, CRGB::Red);
+        fill_solid(stripO3, LEDS_PER_STRIP, CRGB::Black);
+      }
+      FastLED.show();
+      
+      if (btWhite && !lastBtWhite) {
+        initWiFiConnection();
+      }
+      break;
+      
+    case STATE_FETCHING_DATA:
+      // Show data fetching animation
+      fill_rainbow(stripPM25, LEDS_PER_STRIP, now / 10, 7);
+      fill_rainbow(stripNO2, LEDS_PER_STRIP, now / 10 + 85, 7);
+      fill_rainbow(stripO3, LEDS_PER_STRIP, now / 10 + 170, 7);
+      FastLED.show();
+      
+      if (fetchAirQualityData()) {
+        createPollutionEnemies();
+      } else {
+        currentState = STATE_DATA_ERROR;
+      }
+      break;
+      
+    case STATE_ENVIRONMENTAL_GAME:
+      // Handle shooting for each strip
+      if (btBlue && !lastBtBlue) {
+        if (environmentalShots.size() < 15) {
+          EnvironmentalShot shot;
+          shot.position = playerPositions[0];  // PM2.5 strip
+          shot.velocity = -shotInitialVelocity; // Negative for downward
+          shot.color = 1;  // Blue
+          shot.stripIndex = 0;
+          environmentalShots.push_back(shot);
+          playShotSound(1);
+        }
+      }
+      if (btRed && !lastBtRed) {
+        if (environmentalShots.size() < 15) {
+          EnvironmentalShot shot;
+          shot.position = playerPositions[1];  // NO₂ strip
+          shot.velocity = -shotInitialVelocity; // Negative for downward
+          shot.color = 2;  // Red
+          shot.stripIndex = 1;
+          environmentalShots.push_back(shot);
+          playShotSound(2);
+        }
+      }
+      if (btGreen && !lastBtGreen) {
+        if (environmentalShots.size() < 15) {
+          EnvironmentalShot shot;
+          shot.position = playerPositions[2];  // O₃ strip
+          shot.velocity = -shotInitialVelocity; // Negative for downward
+          shot.color = 3;  // Green
+          shot.stripIndex = 2;
+          environmentalShots.push_back(shot);
+          playShotSound(3);
+        }
+      }
+      
+      // Update game logic
+      updateEnvironmentalGame();
+      updateSparks(deltaTime);
+      
+      // Render the environmental display
+      renderEnvironmentalDisplay();
+      
+      // Reset for new data (white button)
+      if (btWhite && !lastBtWhite) {
+        currentState = STATE_FETCHING_DATA;
+        lastAPIUpdate = 0;
+      }
+      break;
+      
+    case STATE_ENVIRONMENTAL_WIN:
+      // Victory animation - clean air celebration
+      static uint8_t winHue = 0;
+      winHue++;
+      fill_solid(stripPM25, LEDS_PER_STRIP, CHSV(winHue, 255, 200));
+      fill_solid(stripNO2, LEDS_PER_STRIP, CHSV(winHue + 85, 255, 200));
+      fill_solid(stripO3, LEDS_PER_STRIP, CHSV(winHue + 170, 255, 200));
+      FastLED.show();
+      
+      if (btWhite && !lastBtWhite) {
+        currentState = STATE_FETCHING_DATA;  // Get new data
+      }
+      break;
+      
+    case STATE_DATA_ERROR:
+      // Error animation - pulsing red
+      if (now % 1000 < 500) {
+        fill_solid(stripPM25, LEDS_PER_STRIP, CRGB::Red);
+        fill_solid(stripNO2, LEDS_PER_STRIP, CRGB::Red);
+        fill_solid(stripO3, LEDS_PER_STRIP, CRGB::Red);
+      } else {
+        fill_solid(stripPM25, LEDS_PER_STRIP, CRGB::Black);
+        fill_solid(stripNO2, LEDS_PER_STRIP, CRGB::Black);
+        fill_solid(stripO3, LEDS_PER_STRIP, CRGB::Black);
+      }
+      FastLED.show();
+      
+      if (btWhite && !lastBtWhite) {
+        currentState = STATE_WIFI_CONNECTING;  // Retry from beginning
+      }
+      break;
+  }
+  
+  // Store button states for next frame
+  lastBtBlue = btBlue;
+  lastBtRed = btRed;
+  lastBtGreen = btGreen;
+  lastBtWhite = btWhite;
+  
+  // Feed watchdog
+  delay(16);  // ~60 FPS
+}

@@ -1,0 +1,60 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Clean Project",
+			"type": "shell",
+			"command": "~/.platformio/penv/bin/platformio",
+			"args": [
+				"run",
+				"--target",
+				"clean"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Erase Flash",
+			"type": "shell",
+			"command": "~/.platformio/penv/bin/platformio",
+			"args": [
+				"run",
+				"--target",
+				"erase"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Erase Flash",
+			"type": "shell",
+			"command": "~/.platformio/penv/bin/platformio",
+			"args": [
+				"run",
+				"--target",
+				"erase"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build and Upload",
+			"type": "shell",
+			"command": "~/.platformio/penv/bin/platformio",
+			"args": [
+				"run",
+				"--target",
+				"upload"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Upload Fixed Version",
+			"type": "shell",
+			"command": "~/.platformio/penv/bin/platformio",
+			"args": [
+				"run",
+				"--target",
+				"upload"
+			],
+			"group": "build"
+		}
+	]
+}
