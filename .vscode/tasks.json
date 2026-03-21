@@ -2,22 +2,7 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"label": "PlatformIO Upload M5Stack Display",
-			"type": "shell",
-			"command": "~/.platformio/penv/bin/platformio",
-			"args": [
-				"run",
-				"--target",
-				"upload",
-				"--environment",
-				"m5stack_atoms3",
-				"--upload-port",
-				"/dev/cu.usbmodem1101"
-			],
-			"group": "build"
-		},
-		{
-			"label": "PlatformIO Upload Console Fix",
+			"label": "Upload Console",
 			"type": "shell",
 			"command": "platformio",
 			"args": [
@@ -25,9 +10,20 @@
 				"--target",
 				"upload",
 				"--environment",
-				"console",
-				"--upload-port",
-				"/dev/cu.usbmodem1301"
+				"console"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Upload Display",
+			"type": "shell",
+			"command": "platformio",
+			"args": [
+				"run",
+				"--target",
+				"upload",
+				"--environment",
+				"display"
 			],
 			"group": "build"
 		},
@@ -39,183 +35,23 @@
 				"device",
 				"monitor",
 				"--environment",
-				"console",
-				"--port",
-				"/dev/cu.usbserial-0001"
+				"console"
 			],
 			"isBackground": true,
 			"group": "monitor"
 		},
 		{
-			"label": "build-console",
-			"type": "shell",
-			"command": "~/.platformio/penv/bin/platformio",
-			"args": [
-				"run",
-				"--environment",
-				"console"
-			],
-			"group": "build"
-		},
-		{
-			"label": "upload-console",
-			"type": "shell",
-			"command": "~/.platformio/penv/bin/platformio",
-			"args": [
-				"run",
-				"--target",
-				"upload",
-				"--environment",
-				"console",
-				"--upload-port",
-				"/dev/cu.usbserial-0001"
-			],
-			"group": "build"
-		},
-		{
-			"label": "monitor-console",
-			"type": "shell",
-			"command": "~/.platformio/penv/bin/platformio",
-			"args": [
-				"device",
-				"monitor",
-				"--environment",
-				"console",
-				"--port",
-				"/dev/cu.usbserial-0001"
-			],
-			"isBackground": false,
-			"group": "monitor"
-		},
-		{
-			"label": "Upload WiFi Test",
+			"label": "Monitor Display",
 			"type": "shell",
 			"command": "platformio",
 			"args": [
-				"run",
-				"--target",
-				"upload",
-				"--environment",
-				"wifi_test",
-				"--upload-port",
-				"/dev/cu.usbserial-0001"
-			]
-		},
-		{
-			"label": "Upload WiFi Test with full path",
-			"type": "shell",
-			"command": "~/.platformio/penv/bin/platformio",
-			"args": [
-				"run",
-				"--target",
-				"upload",
-				"--environment",
-				"wifi_test",
-				"--upload-port",
-				"/dev/cu.usbserial-0001"
-			]
-		},
-		{
-			"label": "Upload WiFi Test (retry)",
-			"type": "shell",
-			"command": "~/.platformio/penv/bin/platformio",
-			"args": [
-				"run",
-				"--target",
-				"upload",
-				"--environment",
-				"wifi_test",
-				"--upload-port",
-				"/dev/cu.usbserial-0001"
-			]
-		},
-		{
-			"label": "Upload WiFi Test (final)",
-			"type": "shell",
-			"command": "~/.platformio/penv/bin/platformio",
-			"args": [
-				"run",
-				"--target",
-				"upload",
-				"--environment",
-				"wifi_test",
-				"--upload-port",
-				"/dev/cu.usbserial-0001"
-			]
-		},
-		{
-			"label": "Upload WiFi Test (auto port)",
-			"type": "shell",
-			"command": "~/.platformio/penv/bin/platformio",
-			"args": [
-				"run",
-				"--target",
-				"upload",
-				"--environment",
-				"wifi_test"
-			]
-		},
-		{
-			"label": "Monitor current output",
-			"type": "shell",
-			"command": "~/.platformio/penv/bin/platformio",
-			"args": [
 				"device",
 				"monitor",
 				"--environment",
-				"wifi_test",
-				"--port",
-				"/dev/cu.usbserial-0001"
-			]
-		},
-		{
-			"label": "Erase Flash Completely",
-			"type": "shell",
-			"command": "~/.platformio/penv/bin/platformio",
-			"args": [
-				"run",
-				"--target",
-				"erase"
-			]
-		},
-		{
-			"label": "Complete Flash Erase",
-			"type": "shell",
-			"command": "~/.platformio/penv/bin/platformio",
-			"args": [
-				"run",
-				"--target",
-				"erase",
-				"--environment",
-				"erase"
-			]
-		},
-		{
-			"label": "Upload WiFi Test to Clean Board",
-			"type": "shell",
-			"command": "~/.platformio/penv/bin/platformio",
-			"args": [
-				"run",
-				"--target",
-				"upload",
-				"--environment",
-				"wifi_test",
-				"--upload-port",
-				"/dev/cu.usbserial-0001"
-			]
-		},
-		{
-			"label": "Monitor Clean WiFi Test",
-			"type": "shell",
-			"command": "~/.platformio/penv/bin/platformio",
-			"args": [
-				"device",
-				"monitor",
-				"--environment",
-				"wifi_test",
-				"--port",
-				"/dev/cu.usbserial-0001"
-			]
+				"display"
+			],
+			"isBackground": true,
+			"group": "monitor"
 		}
 	]
 }
