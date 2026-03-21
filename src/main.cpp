@@ -1,5 +1,5 @@
 // 1D RGB LED Strip Space Invaders Game for ESP32
-// Optimized for new Elegoo ESP32-WROOM 32 board
+// Optimized for Adafruit QT Py S3 with PSRAM
 // Environmental Air Quality Mining Game
 
 #include <Arduino.h>
@@ -9,6 +9,7 @@
 #include <WebServer.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <esp_now.h>
 #include "driver/i2s.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -49,8 +50,9 @@ int config_start_level = 1;
 int currentScore = 0;
 int livesRemaining = 3;
 bool won = false;
-bool btBlue = false, btRed = false, btGreen = false, btSoundToggle = false;
-bool lastBtBlue = false, lastBtRed = false, lastBtGreen = false, lastBtSoundToggle = false;
+// Button states - only gaming buttons tracked during operation  
+bool btBlue = false, btRed = false, btGreen = false;
+bool lastBtBlue = false, lastBtRed = false, lastBtGreen = false;
 unsigned long lastButtonCheck = 0;
 int enemyFrontIndex = 0;  // Fixed type conflict with game_config.h
 unsigned long levelStartTime = 0;
@@ -117,6 +119,29 @@ bool columnAnimationComplete = false;
 
 // Physics constants
 float gravity = -0.008f;  // Increased gravity to keep fireworks lower
+
+// ESP-NOW Wireless Display Communication
+// M5Stack Atom S3 Lite MAC address for wireless LED control
+uint8_t displayUnitMAC[] = {0x34, 0xb7, 0xda, 0x57, 0x36, 0xfc};
+
+// Message structure for ESP-NOW communication
+typedef struct {
+    uint8_t command;     // 1=test pattern, 2=clear, 3=game data, 4=environmental
+    uint8_t red;
+    uint8_t green;
+    uint8_t blue;
+    uint8_t position;
+    uint8_t length;
+    uint8_t stripId;     // 0=PM2.5, 1=NO2, 2=O3
+    uint8_t gameState;   // Current game state
+} DisplayMessage;
+
+DisplayMessage outgoingMessage;
+esp_now_peer_info_t peerInfo;
+bool espnowReady = false;
+bool displayUnitConnected = false;
+unsigned long lastDisplayUpdate = 0;
+const unsigned long DISPLAY_UPDATE_INTERVAL = 200; // Reduce from 50ms to 200ms (5fps instead of 20fps)
 float shotInitialVelocity = 2.0f;  // Higher velocity for better range
 
 // High scores
@@ -185,6 +210,12 @@ void updateLevelPalette();
 void playShotSound(int color);
 void playCannonShotSound();
 
+#ifdef QTPY_S3
+// Status LED control for QT Py S3 built-in NeoPixel
+void setStatusLED(uint8_t r, uint8_t g, uint8_t b);
+void statusLEDOff();
+#endif
+
 // Physics and effects function declarations
 void createImpactSparks(float position, int color, int stripIndex, bool success);
 void createDramaticExplosion(float position, int stripIndex, int intensity = 1);
@@ -215,6 +246,14 @@ void updateEnvironmentalGame();
 void renderEnvironmentalDisplay();
 void initLEDStrips();
 
+// ESP-NOW Wireless Display Functions
+void initESPNOW();
+void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status);
+void sendDisplayCommand(uint8_t cmd, uint8_t r, uint8_t g, uint8_t b, uint8_t pos = 0, uint8_t len = 0, uint8_t strip = 0);
+void sendEnvironmentalState();
+void updateWirelessDisplay();
+
+// Audio system stub implementations (to be replaced with actual audio system)
 // Audio system now in audio_system.cpp - only convenience functions here
 void playShotSound(int color) {
   if (!config_sound_on) return;
@@ -241,7 +280,7 @@ void readButtons() {
   lastBtBlue = btBlue;
   lastBtRed = btRed;
   lastBtGreen = btGreen;
-  lastBtSoundToggle = btSoundToggle;
+  // Settings button state no longer tracked during gameplay
   
   if (millis() - lastButtonCheck > 12) { // Balanced debounce - responsive but no double shots
     lastButtonCheck = millis();
@@ -270,30 +309,13 @@ void readButtons() {
     // Normal assignment for other buttons
     btBlue = rawBlue;
     btGreen = rawGreen;
-    btSoundToggle = !digitalRead(PIN_SOUND_TOGGLE);
+    
+    // SETTINGS BUTTON COMPLETELY IGNORED DURING GAMEPLAY
+    // Sound is permanently disabled for power efficiency
+    // Settings button only checked during startup for WiFi configuration
     
     // Debug output disabled for performance
     
-// Debug output disabled for performance
-    
-    // Handle sound toggle switch (on press, not hold)
-    if (btSoundToggle && !lastBtSoundToggle) {
-      config_sound_on = !config_sound_on;
-      preferences.putBool("sound_on", config_sound_on);
-      // Sound toggle debug output removed for performance
-      
-      if (config_sound_on) {
-        // Flash LEDs green to indicate sound enabled
-        fill_solid(leds, config_num_leds, CRGB::Green);
-        FastLED.show();
-        delay(200);
-      } else {
-        // Flash LEDs red to indicate sound disabled
-        fill_solid(leds, config_num_leds, CRGB::Red);
-        FastLED.show();
-        delay(200);
-      }
-    }
   } else {
     // Don't change button states between debounce intervals
     // This prevents the same press from being detected multiple times
@@ -374,6 +396,11 @@ void checkWinCondition() {
       won = true;
       currentState = STATE_ENVIRONMENTAL_WIN;
       stateStartTime = millis();
+      
+      // Immediate wireless victory notification
+      if (espnowReady) {
+        sendDisplayCommand(1, 255, 255, 0, 0, 0, 0);  // Yellow victory flash
+      }
     }
   }
 }
@@ -388,6 +415,11 @@ void checkLoseCondition() {
           if (livesRemaining <= 0) {
             currentState = STATE_DATA_ERROR; // Reuse as game over state
             stateStartTime = millis();
+            
+            // Immediate wireless game over notification
+            if (espnowReady) {
+              sendDisplayCommand(1, 255, 0, 0, 0, 0, 0);    // Red game over flash
+            }
           }
           return;
         }
@@ -624,11 +656,13 @@ void handleSave() {
   if (server.hasArg("ssid")) config_ssid = server.arg("ssid"); if (server.hasArg("pass")) config_pass = server.arg("pass");
   config_static_ip = server.hasArg("static_ip"); config_ip = server.arg("ip"); config_gateway = server.arg("gw"); config_subnet = server.arg("sn"); config_dns = server.arg("dns");
   
-  // Reallocate LED array if size changed
+  // Console board doesn't have LEDs - they're on M5Stack display board
+  // LED visualization handled wirelessly via ESP-NOW
+  // Legacy LED array kept for game logic compatibility
   if (leds) delete[] leds;
   leds = new CRGB[config_num_leds];
-  FastLED.addLeds<LED_TYPE, PIN_LED_DATA, COLOR_ORDER>(leds, config_num_leds);
-  FastLED.setBrightness((config_brightness_pct * 255) / 100);
+  // FastLED.addLeds<LED_TYPE, PIN_LED_DATA, COLOR_ORDER>(leds, config_num_leds); // Disabled - no LEDs on console
+  // FastLED.setBrightness((config_brightness_pct * 255) / 100); // Disabled - no LEDs on console
   
   preferences.begin("game", false);
   preferences.putInt("num_leds", config_num_leds);
@@ -708,6 +742,39 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
   Serial.println("1D RGB Invader Game - Starting...");
+  
+#ifdef QTPY_S3
+  // Adafruit QT Py S3 specific initialization
+  Serial.println("🚀 Adafruit QT Py S3 with PSRAM detected!");
+  Serial.printf("💡 NeoPixel pin defined as GPIO: %d\n", NEOPIXEL_PIN);
+  
+  // Test the LED immediately to verify it works
+  Serial.println("🔧 Testing NeoPixel LED...");
+  neopixelWrite(NEOPIXEL_PIN, 255, 0, 0);  // Red test
+  delay(500);
+  neopixelWrite(NEOPIXEL_PIN, 0, 255, 0);  // Green test
+  delay(500);
+  neopixelWrite(NEOPIXEL_PIN, 0, 0, 255);  // Blue test - startup color
+  Serial.println("✅ NeoPixel test complete - LED should be blue now");
+  
+  // Check PSRAM availability
+  if (psramFound()) {
+    Serial.printf("🧠 PSRAM found: %d bytes total, %d bytes free\n", ESP.getPsramSize(), ESP.getFreePsram());
+  } else {
+    Serial.println("⚠️ PSRAM not found - using internal RAM only");
+  }
+  
+  // Initialize built-in NeoPixel for status indication
+  // QT Py S3 board support handles power automatically
+  Serial.printf("🔧 Setting NeoPixel (pin %d) to startup blue...\n", NEOPIXEL_PIN);
+  neopixelWrite(NEOPIXEL_PIN, 0, 0, 255);  // Start with blue status
+  Serial.println("💡 Built-in NeoPixel enabled - should be showing blue now");
+  delay(2000);  // Show blue status for 2 seconds so it's very visible;
+  
+#else
+  Serial.println("📟 ESP32-WROOM board detected");
+#endif
+  
   Serial.printf("Free heap at start: %d bytes\n", ESP.getFreeHeap());
   
   // Initialize buttons with pullups and extra setup for problematic pins
@@ -722,10 +789,63 @@ void setup() {
   
   Serial.println("🔧 Button pins initialized with enhanced pullups");
   
-  // Initialize I2S SD (Shutdown) pin - must be HIGH to enable amplifier
-  pinMode(I2S_SD, OUTPUT);
-  digitalWrite(I2S_SD, HIGH);  // Enable amplifier (SD pin active-low)
-  Serial.println("I2S amplifier enabled (SD pin set HIGH)");
+  // STARTUP SETTINGS BUTTON CHECK - WiFi only activated if button held during boot
+  Serial.println("⏱️  Checking for settings button during startup...");
+  Serial.println("🔘 Hold settings button (sound toggle) to enter AQI data configuration mode");
+  
+  // Brief window to check settings button
+  bool settingsRequested = false;
+  for (int i = 0; i < 20; i++) {  // Check for 2 seconds (20 * 100ms)
+    if (digitalRead(PIN_SOUND_TOGGLE) == LOW) {
+      settingsRequested = true;
+      Serial.printf("🔘 Settings button detected! (%d/20)\n", i+1);
+    }
+    
+    // Visual feedback during button check
+    if (i % 4 == 0) {
+      setStatusLED(255, 255, 0);  // Yellow flash during button check
+    } else {
+      setStatusLED(0, 0, 0);      // Off
+    }
+    
+    delay(100);
+  }
+  
+  if (settingsRequested) {
+    Serial.println("🎛️  SETTINGS MODE ACTIVATED!");
+    Serial.println("📶 Starting WiFi Access Point for AQI data entry...");
+    setStatusLED(0, 255, 255);  // Cyan - entering settings mode
+    
+    // Initialize WiFi for settings
+    initWiFiConnection();  // This will set up the web interface
+    
+    // Stay in settings mode - main loop will handle web server
+    currentState = STATE_WIFI_CONNECTING;  // Use existing WiFi state
+    Serial.println("🌐 Settings mode ready - connect to WiFi AP to enter AQI data");
+    Serial.println("⚠️  Device will automatically restart after saving settings");
+    
+  } else {
+    Serial.println("🎮 Normal startup mode - no settings button detected");
+    Serial.println("💡 Continuing with ESP-NOW gaming mode");
+    setStatusLED(0, 255, 0);    // Green - normal mode
+    delay(1500);  // Extended time to show green status
+    
+    // Initialize ESP-NOW for display communication (low power WiFi mode)
+    WiFi.mode(WIFI_STA);  // Station mode required for ESP-NOW
+    WiFi.disconnect();     // Don't connect to any AP
+    initESPNOW();         // Enable wireless display communication
+    
+    wifiConnected = false;     // No AP/STA WiFi connections
+    useAccessPointMode = false;
+    
+    Serial.println("📡 ESP-NOW enabled for display communication");
+    Serial.println("🚫 High-power WiFi modes disabled for efficiency");
+  }
+  
+  // AUDIO DISABLED: I2S amplifier disabled to save power for WiFi radio
+  // pinMode(I2S_SD, OUTPUT);
+  // digitalWrite(I2S_SD, HIGH);  // Enable amplifier (SD pin active-low)
+  Serial.println("⚡ I2S amplifier DISABLED to prevent WiFi brownout");
   
   // Load configuration
   preferences.begin("game", true);
@@ -739,8 +859,9 @@ void setup() {
   config_subnet = preferences.getString("subnet", "255.255.255.0");
   config_dns = preferences.getString("dns", "192.168.4.1");
   config_static_ip = preferences.getBool("static_ip", false);
-  config_sound_on = preferences.getBool("sound_on", true); // RE-ENABLE AUDIO FOR TESTING
+  config_sound_on = false; // FORCE DISABLE AUDIO to save power for WiFi
   config_volume_pct = preferences.getInt("volume", 50);
+  Serial.println("⚡ Audio system DISABLED to prevent brownout during WiFi init");
   currentProfilePrefix = preferences.getString("act_prof", "default");
   preferences.end();
   Serial.printf("Config loaded - LEDs: %d, Brightness: %d%%\n", config_num_leds, config_brightness_pct);
@@ -763,22 +884,6 @@ void setup() {
   loadHighscores();
   loadColors();
   
-  // RE-ENABLE AUDIO SYSTEM WITH DEBUGGING
-  if (config_sound_on && ESP.getFreeHeap() > 20000) {
-    Serial.println("Attempting to initialize audio system...");
-    Serial.printf("Free heap before audio init: %d bytes\n", ESP.getFreeHeap());
-    initAudio();
-    Serial.printf("Free heap after audio init: %d bytes\n", ESP.getFreeHeap());
-  } else if (!config_sound_on) {
-    Serial.println("Audio system disabled in configuration");
-  } else {
-    Serial.printf("✗ Not enough memory for audio (only %d bytes free)\n", ESP.getFreeHeap());
-    config_sound_on = false;
-  }
-  
-  // Initialize Environmental Game
-  initLEDStrips();
-  
   // Initialize Environmental Game
   initLEDStrips();
   
@@ -796,67 +901,125 @@ void setup() {
     currentAQI.lastUpdate = 0;
   }
   
-  // Setup Access Point or WiFi based on configuration
-  Serial.println("📶 Initializing WiFi system...");
+  // Audio completely disabled for power management
+  config_sound_on = false;
+  Serial.println("⚡ Audio system DISABLED - power reserved for communication");
   
-  if (useAccessPointMode) {
-    Serial.println("🌐 ACCESS POINT MODE - No external WiFi required!");
-    Serial.println("Creating ESP32 WiFi network for manual AQI data input...");
+  // Set game data based on mode
+  if (wifiConnected || useAccessPointMode) {
+    // Settings mode - WiFi is active, wait for data input
+    Serial.println("🌐 Settings mode - waiting for AQI data input via web interface");
+    Serial.println("💾 After settings are saved, device will restart automatically");
+    
   } else {
-    Serial.printf("Attempting to connect to: %s\n", config_ssid.c_str());
-    Serial.println("📱 iPhone Hotspot Setup:");
-    Serial.println("  1. Enable Personal Hotspot on your iPhone");
-    Serial.println("  2. Make sure hotspot name matches config_ssid above");
-    Serial.println("  3. Keep iPhone within 30 feet of ESP32");
-    Serial.println("  4. Hotspot provides 2.4GHz WiFi + Internet for AQI data");
-  }
-  
-  // Start WiFi connection attempt
-  initWiFiConnection();
-  
-  // Set initial state based on whether we have valid data
-  if (useAccessPointMode && currentAQI.dataValid) {
-    // We have saved data and we're in AP mode - start game immediately!
-    Serial.println("🚀 Auto-starting game with saved AQI data!");
+    // Normal gaming mode - use saved or default data
+    if (currentAQI.dataValid) {
+      Serial.println("🚀 Starting game with saved AQI data!");
+      Serial.printf("📊 Using data: PM2.5=%d, NO₂=%d, O₃=%d from %s\n", 
+                    currentAQI.pm25, currentAQI.no2, currentAQI.o3, currentAQI.city.c_str());
+    } else {
+      Serial.println("🎮 No saved data - creating default pollution scenario...");
+      currentAQI.pm25 = 25;  // Moderate pollution defaults
+      currentAQI.no2 = 15;
+      currentAQI.o3 = 20;
+      currentAQI.city = "Demo City";
+      currentAQI.dataValid = true;
+      currentAQI.lastUpdate = millis();
+      Serial.printf("📊 Using defaults: PM2.5=%d, NO₂=%d, O₃=%d\n", 
+                    currentAQI.pm25, currentAQI.no2, currentAQI.o3);
+    }
+    
     prepareColumnAnimation();
-  } else {
-    // Normal startup flow - need to fetch or wait for data input
-    currentState = STATE_WIFI_CONNECTING;
+    currentState = STATE_COLUMN_FILLING;  // Start column animation before game
   }
+  
   stateStartTime = millis();
-  Serial.println("🌍 Starting environmental game with real AQI data integration!");
+  
+  Serial.println("🎮 Environmental Game Mode with Wireless Display");
+  if (espnowReady) {
+    Serial.println("📡 ESP-NOW display communication ACTIVE");
+    Serial.printf("🔗 Connected to display board: %02x:%02x:%02x:%02x:%02x:%02x\n", 
+                  displayUnitMAC[0], displayUnitMAC[1], displayUnitMAC[2], 
+                  displayUnitMAC[3], displayUnitMAC[4], displayUnitMAC[5]);
+  } else {
+    Serial.println("⚠️  ESP-NOW display communication failed to initialize");
+  }
   
   Serial.printf("Final free heap: %d bytes\n", ESP.getFreeHeap());
-  Serial.println("🌍 Environmental Air Quality Mining Game Ready!");
+  Serial.printf("Current CPU frequency: %d MHz\n", getCpuFrequencyMhz());
   
-  // Instructions based on WiFi mode
-  if (useAccessPointMode) {
-    Serial.println("🌐 ACCESS POINT MODE - Complete offline operation!");
-    Serial.println("Instructions:");
-    Serial.println("  1. Connect your phone to ESP32's WiFi network");
-    Serial.println("  2. Open browser and go to 192.168.4.1");
-    Serial.println("  3. Use web interface to input current AQI data");
-    Serial.println("  4. Data automatically saves and persists across reboots");
-    Serial.println("  5. Use API Helper for streamlined data collection");
+  Serial.println("🎮 Environmental Air Quality Mining Game Ready!");
+  Serial.println("🎯 Goal: Clear all pollution columns by shooting matching colors!");
+  
+#ifdef QTPY_S3
+  if (wifiConnected || useAccessPointMode) {
+    setStatusLED(0, 255, 255);  // Cyan - settings mode
+    Serial.println("💡 Status LED: Cyan (settings mode active)");
   } else {
-    // Instructions will be shown based on whether WiFi succeeds or fails
-    if (wifiConnected) {
-      Serial.println("📊 Real AQI Data Integration Active");
-      Serial.println("Instructions:");
-      Serial.println("  - Connecting to WiFi to fetch real air quality data...");
-      Serial.println("  - Pollution column heights based on current AQI readings");
-    } else {
-      Serial.println("🎮 Demo Mode - WiFi connection will be attempted...");
-      Serial.println("Instructions:");
-      Serial.println("  - If WiFi fails, demo pollution data will be used");
-      Serial.println("  - Game will start automatically with simulated data");
-    }
+    // Brief "ready" flash before power saving
+    setStatusLED(255, 255, 255);  // White flash - system ready
+    delay(200);
+    setStatusLED(0, 0, 0);        // Brief off
+    delay(100);
+    setStatusLED(255, 255, 255);  // Second flash
+    delay(200);
+    
+    statusLEDOff();               // Turn off LED completely for power saving
+    Serial.println("💡 Status LED: Ready flash completed - entering power saving mode");
+  }
+#endif
+  
+  Serial.println("⚡ Startup optimized for power efficiency");
+  
+  // Show appropriate instructions based on mode
+  if (wifiConnected || useAccessPointMode) {
+    Serial.println("🌐 WiFi SETTINGS MODE ACTIVE:");
+    Serial.println("  - Connect to WiFi access point to enter AQI data");
+    Serial.println("  - Device will restart automatically after saving settings");
+    Serial.println("  - Next boot will start in efficient gaming mode");
+  } else {
+    Serial.println("🎮 OPTIMIZED GAMING MODE:");
+    Serial.println("  - Environmental shooting game with maximum power efficiency");
+    Serial.println("  - WiFi disabled to prevent overheating and power issues");
+    Serial.println("  - LED feedback for all game interactions");
+    Serial.println("  - Serial output shows detailed game progress");
   }
   
-  Serial.println("  - Blue button: PM2.5 fine particles, RED button: NO₂ nitrogen dioxide, Green button: O₃ ozone");
-  Serial.println("  - Each pixel takes 4 hits to completely eliminate");
-  Serial.println("  - Goal: Clear all pollution columns to achieve clean air!");
+  Serial.println();
+  Serial.println("🔘 STARTUP SETTINGS BUTTON:");
+  Serial.println("  - Hold settings button during power-on to enter AQI data mode");
+  Serial.println("  - Normal startup (no button) = efficient gaming mode");
+  Serial.println("  - Settings button ignored during gameplay for smooth performance");
+  Serial.println();
+  Serial.println("🕹️  GAME CONTROLS:");
+  Serial.println("  - Blue button: Shoot blue projectiles at PM2.5 particles");
+  Serial.println("  - Red button: Shoot red projectiles at NO₂ particles"); 
+  Serial.println("  - Green button: Shoot green projectiles at O₃ particles");
+  Serial.println("  - Settings button: ONLY checked during startup");
+  Serial.println("  - Hold any shot button longer = more powerful cannon blast!");
+  Serial.println();
 }
+
+#ifdef QTPY_S3
+// Status LED functions for QT Py S3 built-in NeoPixel
+void setStatusLED(uint8_t r, uint8_t g, uint8_t b) {
+  // Use standard Arduino board definitions and ESP32-S3's built-in neopixelWrite()
+  Serial.printf("🎨 Setting LED to RGB(%d,%d,%d) on pin %d\n", r, g, b, NEOPIXEL_PIN);
+  neopixelWrite(NEOPIXEL_PIN, r, g, b);
+  delay(50);  // Brief delay to ensure command is processed
+}
+
+void statusLEDOff() {
+  // Multiple attempts to ensure LED is completely off
+  Serial.printf("🚫 Turning off LED on pin %d...\n", NEOPIXEL_PIN);
+  neopixelWrite(NEOPIXEL_PIN, 0, 0, 0);
+  delay(100);  
+  neopixelWrite(NEOPIXEL_PIN, 0, 0, 0);  // Second attempt
+  delay(100);
+  
+  Serial.println("🚫 LED turned off using explicit pin definition (double attempt)");
+}
+#endif
 
 void loop() {
   static unsigned long lastUpdate = 0;
@@ -892,6 +1055,9 @@ void loop() {
     Serial.printf("🎮 Current State: %d, Enemies on strips: %d,%d,%d, Active shots: %d\n", 
                   currentState, pollutionEnemies[0].size(), pollutionEnemies[1].size(), 
                   pollutionEnemies[2].size(), environmentalShots.size());
+    Serial.printf("📡 ESP-NOW: %s, Display: %s\n", 
+                  espnowReady ? "Ready" : "Disabled", 
+                  displayUnitConnected ? "Connected" : "Disconnected");
   }
   
   // Environmental Game State Machine
@@ -1024,6 +1190,14 @@ void loop() {
                   environmentalShots.push_back(shot);
                   playerRecoil[strip] = -2.0f;  // Forward spring for normal shot
                   playShotSound(strip + 1);
+                  
+                  // Instant wireless display feedback for button press
+                  if (espnowReady) {
+                    uint8_t r = (strip == 1) ? 255 : 0;      // Red for NO2 strip
+                    uint8_t g = (strip == 2) ? 255 : 0;      // Green for O3 strip 
+                    uint8_t b = (strip == 0) ? 255 : 0;      // Blue for PM2.5 strip
+                    sendDisplayCommand(3, r, g, b, 0, 20, strip);  // Command 3 = flash effect
+                  }
                   
                   // Removed debug output for performance
                 }
@@ -1196,6 +1370,9 @@ void loop() {
   }
 
   FastLED.show();
+  
+  // Update wireless display with current game state
+  updateWirelessDisplay();
 
   // Feed watchdog to prevent boot loops
   delay(1);
@@ -1584,16 +1761,65 @@ void handleAPIHelper() {
 
 void initWiFiConnection() {
   if (useAccessPointMode) {
-    // Create ESP32 Access Point - no external WiFi needed!
-    Serial.println("🌍 Creating ESP32 Access Point for manual AQI input...");
+    // AGGRESSIVE POWER MANAGEMENT FOR BROWNOUT PREVENTION
+    Serial.println("⚡ POWER CRITICAL: Implementing aggressive power management...");
     
-    WiFi.mode(WIFI_AP);
+    // Step 1: Reduce CPU frequency to minimum for WiFi operations
+    Serial.println("🔽 Reducing CPU frequency to 80 MHz...");
+    setCpuFrequencyMhz(80);  // Minimum stable frequency
+    delay(100);
+    
+    // Step 2: Disable all non-essential peripherals during WiFi init
+    Serial.println("💤 Disabling non-essential systems temporarily...");
+    
+    // Step 3: Initialize WiFi with maximum power savings
+    Serial.println("📡 Initializing WiFi with power-optimized settings...");
+    
+    WiFi.mode(WIFI_OFF);     // Start with WiFi completely off
+    delay(500);              // Allow power to stabilize
+    
+    WiFi.mode(WIFI_AP);      // Use AP-only mode (lower power than AP_STA)
+    delay(500);              // Stabilization delay
+    
+    // Configure with minimal power settings
     WiFi.softAPConfig(ap_ip, ap_gateway, ap_subnet);
     
-    bool apStarted = WiFi.softAP(ap_ssid.c_str(), ap_pass.c_str());
+    Serial.println("🌍 Creating ESP32 Access Point with power management...");
+    
+    // Retry mechanism with exponential backoff
+    bool apStarted = false;
+    int retryCount = 0;
+    const int maxRetries = 3;
+    
+    while (!apStarted && retryCount < maxRetries) {
+      Serial.printf("🔄 WiFi AP attempt %d/%d...", retryCount + 1, maxRetries);
+      
+      delay(1000 * (retryCount + 1));  // Exponential backoff: 1s, 2s, 3s
+      
+      apStarted = WiFi.softAP(ap_ssid.c_str(), ap_pass.c_str(), 1, 0, 3); // Ch 1, no hidden, max 3 clients
+      
+      if (!apStarted) {
+        Serial.println(" FAILED - retrying...");
+        WiFi.mode(WIFI_OFF);
+        delay(1000);  // Cool down period
+        WiFi.mode(WIFI_AP);
+        delay(500);
+      } else {
+        Serial.println(" SUCCESS!\n");
+      }
+      
+      retryCount++;
+    }
     
     if (apStarted) {
-      Serial.println("✓ ESP32 Access Point created successfully!");
+      Serial.println("✅ ESP32 Access Point created with power management!");
+      delay(500);  // Allow AP to fully stabilize
+      
+      // Restore normal CPU frequency after successful WiFi init
+      Serial.println("⚡ Restoring normal CPU frequency...");
+      setCpuFrequencyMhz(240);  // Back to full speed
+      delay(100);
+      
       Serial.printf("📶 Network Name: %s\n", ap_ssid.c_str());
       Serial.printf("🔑 Password: %s\n", ap_pass.c_str());
       Serial.printf("🌐 ESP32 IP: %s\n", WiFi.softAPIP().toString().c_str());
@@ -1608,10 +1834,13 @@ void initWiFiConnection() {
       
       wifiConnected = true;  // Consider AP as "connected" for game logic
       
+      Serial.println("🌐 Starting web server...");
+      delay(500);  // Brief delay before starting server
+      
       // Setup web server routes for AQI manual input
       setupWebServerRoutes();
       server.begin();
-      Serial.println("🌐 Web server started for AQI input interface");
+      Serial.println("✓ Web server started for AQI input interface");
       
       // Start with saved data (or defaults if none saved)
       Serial.println("🎮 Loading saved AQI data - game ready immediately");
@@ -1620,8 +1849,21 @@ void initWiFiConnection() {
       // Skip the WiFi state machine and go directly to game
       prepareColumnAnimation();
     } else {
-      Serial.println("✗ Failed to create Access Point!");
+      Serial.println("❌ CRITICAL: All WiFi attempts failed!");
+      Serial.println("🔧 POWER ISSUE DETECTED - Continuing without WiFi...");
+      
+      // Restore CPU frequency even if WiFi failed
+      setCpuFrequencyMhz(240);
+      
       wifiConnected = false;
+      useAccessPointMode = false;  // Disable WiFi features
+      
+      Serial.println("🎮 Starting in OFFLINE MODE - no web interface available");
+      Serial.println("⚠️  To fix: Use external 5V power supply or powered USB hub");
+      
+      // Load saved data and start game anyway
+      loadAQIData();
+      prepareColumnAnimation();
     }
   } else {
     // Original WiFi station mode code...
@@ -1642,11 +1884,24 @@ void initWiFiConnection() {
     
     WiFi.begin(config_ssid.c_str(), config_pass.c_str());
     
+#ifdef QTPY_S3
+    setStatusLED(255, 165, 0);  // Orange - connecting
+#endif
+    
     int attempts = 0;
     while (WiFi.status() != WL_CONNECTED && attempts < 20) {
       delay(500);
       Serial.print(".");
       attempts++;
+      
+#ifdef QTPY_S3
+      // Blink orange during connection attempts
+      if (attempts % 2 == 0) {
+        setStatusLED(255, 165, 0);  // Orange
+      } else {
+        statusLEDOff();
+      }
+#endif
       
       if (attempts % 5 == 0) {
         Serial.printf(" (Status: %d, Attempt: %d/20) ", WiFi.status(), attempts);
@@ -1655,10 +1910,16 @@ void initWiFiConnection() {
     
     if (WiFi.status() == WL_CONNECTED) {
       wifiConnected = true;
+#ifdef QTPY_S3
+      setStatusLED(0, 255, 0);  // Green - connected
+#endif
       Serial.println();
       Serial.printf("✓ WiFi connected! IP: %s\n", WiFi.localIP().toString().c_str());
       Serial.printf("📶 Signal strength: %d dBm\n", WiFi.RSSI());
     } else {
+#ifdef QTPY_S3
+      setStatusLED(255, 0, 0);  // Red - failed
+#endif
       Serial.println("\n✗ WiFi connection failed!");
       Serial.printf("WiFi Status: %d (should be 3 for connected)\n", WiFi.status());
       Serial.println("TROUBLESHOOTING:");
@@ -1720,6 +1981,174 @@ bool fetchAirQualityData() {
   
   http.end();
   return false;
+}
+
+// --------------------------------------------------------------------------
+// ESP-NOW WIRELESS DISPLAY COMMUNICATION FUNCTIONS
+// --------------------------------------------------------------------------
+
+void initESPNOW() {
+  espnowReady = false;
+  displayUnitConnected = false;
+  
+  Serial.println("🔗 Initializing ESP-NOW for wireless display...");
+  
+  // ESP-NOW can work alongside WiFi in station mode
+  // In AP mode, we need to set the channel to match
+  
+  Serial.println("Step 1: Initializing ESP-NOW core...");
+  esp_err_t result = esp_now_init();
+  if (result != ESP_OK) {
+    Serial.printf("ESP-NOW init failed: %s\n", esp_err_to_name(result));
+    Serial.println("Game will continue without wireless display");
+    return;
+  }
+  Serial.println("ESP-NOW core initialized successfully");
+  
+  Serial.println("Step 2: Registering send callback...");
+  result = esp_now_register_send_cb(onDataSent);
+  if (result != ESP_OK) {
+    Serial.printf("Send callback registration failed: %s\n", esp_err_to_name(result));
+  } else {
+    Serial.println("Send callback registered successfully");
+  }
+  
+  Serial.println("Step 3: Adding M5Stack display peer...");
+  Serial.printf("Target MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                displayUnitMAC[0], displayUnitMAC[1], displayUnitMAC[2],
+                displayUnitMAC[3], displayUnitMAC[4], displayUnitMAC[5]);
+  
+  memcpy(peerInfo.peer_addr, displayUnitMAC, 6);
+  peerInfo.channel = 0;  // Auto-channel
+  peerInfo.encrypt = false;
+  
+  result = esp_now_add_peer(&peerInfo);
+  if (result != ESP_OK) {
+    Serial.printf("Failed to add display peer: %s\n", esp_err_to_name(result));
+    Serial.println("Wireless display will not work");
+    return;
+  }
+  
+  Serial.println("✓ M5Stack display peer added successfully");
+  Serial.println("🎮 Wireless LED display ready for game events!");
+  
+  // Add stabilization delay for ESP-NOW to fully initialize
+  Serial.println("⏳ Waiting 3 seconds for ESP-NOW to stabilize...");
+  delay(3000);
+  Serial.println("✓ ESP-NOW stabilization complete!");
+  
+  espnowReady = true;
+}
+
+void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+  displayUnitConnected = (status == ESP_NOW_SEND_SUCCESS);
+  
+  if (status != ESP_NOW_SEND_SUCCESS) {
+    Serial.printf("Display communication failed to %02X:%02X:%02X:%02X:%02X:%02X\n",
+                  mac_addr[0], mac_addr[1], mac_addr[2], 
+                  mac_addr[3], mac_addr[4], mac_addr[5]);
+  }
+}
+
+void sendDisplayCommand(uint8_t cmd, uint8_t r, uint8_t g, uint8_t b, uint8_t pos, uint8_t len, uint8_t strip) {
+  if (!espnowReady) return;
+  
+  // Reduced rate limiting - allow burst sending for multi-strip environmental data
+  static unsigned long lastSendTime = 0;
+  unsigned long now = millis();
+  
+  if (now - lastSendTime < 15) {  // Reduced from 25ms to 15ms
+    delay(15 - (now - lastSendTime));  // Wait if needed
+  }
+  
+  outgoingMessage.command = cmd;
+  outgoingMessage.red = r;
+  outgoingMessage.green = g;
+  outgoingMessage.blue = b;
+  outgoingMessage.position = pos;
+  outgoingMessage.length = len;
+  outgoingMessage.stripId = strip;
+  outgoingMessage.gameState = (uint8_t)currentState;
+  
+  esp_err_t result = esp_now_send(displayUnitMAC, (uint8_t *)&outgoingMessage, sizeof(outgoingMessage));
+  
+  if (result != ESP_OK) {
+    static unsigned long lastErrorTime = 0;
+    if (millis() - lastErrorTime > 5000) {
+      Serial.printf("ESP-NOW send failed: %s\n", esp_err_to_name(result));
+      lastErrorTime = millis();
+    }
+  } else {
+    lastSendTime = millis();
+    // Show successful sends for strip data
+    if (cmd == 4) {  // Environmental data
+      Serial.printf("✓ ESP-NOW environmental data sent (strip=%d, len=%d)\n", strip, len);
+    }
+  }
+}
+
+void sendEnvironmentalState() {
+  if (!espnowReady || !currentAQI.dataValid) return;
+  
+  Serial.println("📊 Sending environmental data to all 3 strips...");
+  
+  // Send current environmental levels to display with proper delays
+  // Command 4 = environmental data display
+  
+  // Send PM2.5 level (Blue) - Strip 0
+  int pm25Height = map(currentAQI.pm25, 0, 200, 0, 100);
+  sendDisplayCommand(4, 0, 0, 255, 0, pm25Height, 0);  // Blue for PM2.5
+  
+  delay(20);  // Increased from 10ms to 20ms to ensure delivery
+  
+  // Send NO2 level (Red) - Strip 1  
+  int no2Height = map(currentAQI.no2, 0, 100, 0, 100);
+  sendDisplayCommand(4, 255, 0, 0, 0, no2Height, 1);   // Red for NO2
+  
+  delay(20);  // Increased from 10ms to 20ms to ensure delivery
+  
+  // Send O3 level (Green) - Strip 2
+  int o3Height = map(currentAQI.o3, 0, 150, 0, 100);
+  sendDisplayCommand(4, 0, 255, 0, 0, o3Height, 2);    // Green for O3
+  
+  Serial.printf("📊 Environmental state sent: PM2.5=%d->%d, NO₂=%d->%d, O₃=%d->%d\n", 
+                currentAQI.pm25, pm25Height, currentAQI.no2, no2Height, currentAQI.o3, o3Height);
+}
+
+void updateWirelessDisplay() {
+  if (!espnowReady) return;
+  
+  // Throttle display updates
+  if (millis() - lastDisplayUpdate < DISPLAY_UPDATE_INTERVAL) return;
+  lastDisplayUpdate = millis();
+  
+  // Send state-specific display commands
+  switch (currentState) {
+    case STATE_ENVIRONMENTAL_GAME:
+      // Only send environmental data (no longer floods every 50ms)
+      sendEnvironmentalState();
+      break;
+      
+    case STATE_ENVIRONMENTAL_WIN:
+      // Send victory pattern
+      sendDisplayCommand(1, 255, 255, 0, 0, 0, 0);  // Yellow victory
+      break;
+      
+    case STATE_DATA_ERROR:
+      // Send game over pattern  
+      sendDisplayCommand(1, 255, 0, 0, 0, 0, 0);    // Red game over
+      break;
+      
+    case STATE_WIFI_CONNECTING:
+      // Send connecting pattern
+      sendDisplayCommand(1, 0, 0, 255, 0, 0, 0);    // Blue connecting
+      break;
+      
+    default:
+      // Clear display for other states
+      sendDisplayCommand(2, 0, 0, 0, 0, 0, 0);      // Clear
+      break;
+  }
 }
 
 void prepareColumnAnimation() {
@@ -1793,21 +2222,20 @@ void createPollutionEnemies() {
 }
 
 void initLEDStrips() {
-  // Allocate memory for each strip
+  // Console board: LED strips are on M5Stack display board
+  // Keep memory allocation for game logic compatibility
   stripPM25 = new CRGB[LEDS_PER_STRIP];
   stripNO2 = new CRGB[LEDS_PER_STRIP];
   stripO3 = new CRGB[LEDS_PER_STRIP];
   
-  // Initialize FastLED for each strip
-  FastLED.addLeds<LED_TYPE, PIN_LED_PM25, COLOR_ORDER>(stripPM25, LEDS_PER_STRIP);
-  FastLED.addLeds<LED_TYPE, PIN_LED_NO2, COLOR_ORDER>(stripNO2, LEDS_PER_STRIP);
-  FastLED.addLeds<LED_TYPE, PIN_LED_O3, COLOR_ORDER>(stripO3, LEDS_PER_STRIP);
+  // LED strips controlled wirelessly via ESP-NOW to M5Stack
+  // FastLED.addLeds calls disabled - no LEDs physically connected to console
+  // FastLED.addLeds<LED_TYPE, PIN_LED_PM25, COLOR_ORDER>(stripPM25, LEDS_PER_STRIP);
+  // FastLED.addLeds<LED_TYPE, PIN_LED_NO2, COLOR_ORDER>(stripNO2, LEDS_PER_STRIP); 
+  // FastLED.addLeds<LED_TYPE, PIN_LED_O3, COLOR_ORDER>(stripO3, LEDS_PER_STRIP);
   
-  FastLED.setBrightness((config_brightness_pct * 255) / 100);
-  FastLED.clear();
-  FastLED.show();
-  
-  Serial.println("✓ 3-Strip LED configuration initialized");
+  // Visual output handled by M5Stack display board
+  Serial.println("✓ Console board: Game logic initialized (LEDs on M5Stack display)");
 }
 
 void updateEnvironmentalGame() {

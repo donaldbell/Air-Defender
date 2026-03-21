@@ -18,29 +18,55 @@
 // --------------------------------------------------------------------------
 
 // LED Strip Configuration - 3 parallel strips for air quality metrics
-#define PIN_LED_PM25    23  // Blue strip (PM2.5 fine particles) - current pin
-#define PIN_LED_NO2     4   // Red strip (NO₂ nitrogen dioxide) - new pin
-#define PIN_LED_O3      19  // Green strip (O₃ ozone) - safer GPIO pin
-#define PIN_LED_DATA    PIN_LED_PM25  // Default for legacy functions
+// Console board pins (ESP32 Wroom32)
+// LED strips are on M5Stack display board - not used by console
+// #define PIN_LED_PM25    // Not used - M5Stack handles LEDs
+// #define PIN_LED_NO2     // Not used - M5Stack handles LEDs  
+// #define PIN_LED_O3      // Not used - M5Stack handles LEDs
+// #define PIN_LED_DATA    // Not used - M5Stack handles LEDs
+
+// Pin configuration based on board type
+#ifdef QTPY_S3
+  // Adafruit QT Py S3 pin configuration
+  // Available GPIO: 18(A0), 17(A1), 9(A2), 8(A3), 7(SDA), 6(SCL), 43(TX), 44(RX), 36(SCK), 37(MISO), 35(MOSI)
+  
+  // Built-in NeoPixel - use standard Arduino board definitions
+  // PIN_NEOPIXEL and NEOPIXEL_POWER are defined automatically by the board package
+  
+  // Button pins - using A0-A3 analog pins as digital inputs
+  #define PIN_BUTTON_BLUE  18  // A0 - Blue button for PM2.5 shots
+  #define PIN_BUTTON_RED   17  // A1 - Red button for NO₂ (red) shots 
+  #define PIN_BUTTON_GREEN  9  // A2 - Green button for O₃ shots
+  #define PIN_SOUND_TOGGLE  8  // A3 - Sound on/off toggle switch
+  
+  // I2S Audio pins for amplifier (ESP32-S3 optimized)
+  #define I2S_BCLK        35  // MOSI - Bit Clock
+  #define I2S_LRC         36  // SCK - Left/Right Clock (Word Select)
+  #define I2S_DOUT        37  // MISO - Data Out
+  #define I2S_SD           6  // SCL - Shutdown pin (HIGH to enable)
+  #define SAMPLE_RATE     44100
+  
+#else
+  // Legacy ESP32-WROOM board pin configuration
+  // Button pins
+  #define PIN_BUTTON_BLUE  16  // Moved from 15 to avoid board conflicts
+  #define PIN_BUTTON_RED   18  // Red button for NO₂ (red) shots 
+  #define PIN_BUTTON_GREEN 17
+  #define PIN_SOUND_TOGGLE 13  // Sound on/off toggle switch
+
+  // I2S Audio pins for amplifier
+  #define I2S_BCLK        25  // Bit Clock - DAC1 pin, great for audio
+  #define I2S_LRC         27  // Left/Right Clock (Word Select) - Available GPIO
+  #define I2S_DOUT        26  // Data Out - DAC2 pin, perfect for audio
+  #define I2S_SD          33  // Shutdown pin - must be HIGH to enable amplifier
+  #define SAMPLE_RATE     44100
+#endif
 
 #define LEDS_PER_STRIP  100 // Each strip represents one air quality metric
 #define NUM_STRIPS      3   // PM2.5, NO₂, O₃
 #define MAX_LEDS        (LEDS_PER_STRIP * NUM_STRIPS)
 #define LED_TYPE        WS2812B
 #define COLOR_ORDER     GRB
-
-// I2S Audio pins for amplifier
-#define I2S_BCLK        25  // Bit Clock - DAC1 pin, great for audio
-#define I2S_LRC         27  // Left/Right Clock (Word Select) - Available GPIO
-#define I2S_DOUT        26  // Data Out - DAC2 pin, perfect for audio
-#define I2S_SD          33  // Shutdown pin - must be HIGH to enable amplifier
-#define SAMPLE_RATE     44100
-
-// Button pins
-#define PIN_BUTTON_BLUE  16  // Moved from 15 to avoid board conflicts
-#define PIN_BUTTON_RED   18  // Red button for NO₂ (red) shots 
-#define PIN_BUTTON_GREEN 17
-#define PIN_SOUND_TOGGLE 13  // Sound on/off toggle switch
 
 // --------------------------------------------------------------------------
 // AUDIO DATA STRUCTURES
