@@ -4,14 +4,8 @@
 #include <FastLED.h>
 #include <Preferences.h>
 #include <WiFi.h>
-#include <WebServer.h>
-#include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <vector>
-#include "driver/i2s.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/queue.h"
 
 // --------------------------------------------------------------------------
 // HARDWARE CONFIGURATION - ENVIRONMENTAL AIR QUALITY GAME
@@ -37,13 +31,17 @@
   #define PIN_BUTTON_BLUE  18  // A0 - Blue button for PM2.5 shots
   #define PIN_BUTTON_RED   17  // A1 - Red button for NO₂ (red) shots 
   #define PIN_BUTTON_GREEN  9  // A2 - Green button for O₃ shots
-  #define PIN_SOUND_TOGGLE  8  // A3 - Sound on/off toggle switch
+  // A3 (GPIO 8) now free for future use
+  
+  // I2C LCD Display pins (20x4 with PCF8574 backpack)
+  #define LCD_SDA_PIN     7   // I2C Data
+  #define LCD_SCL_PIN     6   // I2C Clock  
+  #define LCD_I2C_ADDR    0x27 // Standard PCF8574 address
   
   // I2S Audio pins for amplifier (ESP32-S3 optimized)
   #define I2S_BCLK        35  // MOSI - Bit Clock
   #define I2S_LRC         36  // SCK - Left/Right Clock (Word Select)
   #define I2S_DOUT        37  // MISO - Data Out
-  #define I2S_SD           6  // SCL - Shutdown pin (HIGH to enable)
   #define SAMPLE_RATE     44100
   
 #else
@@ -58,7 +56,6 @@
   #define I2S_BCLK        25  // Bit Clock - DAC1 pin, great for audio
   #define I2S_LRC         27  // Left/Right Clock (Word Select) - Available GPIO
   #define I2S_DOUT        26  // Data Out - DAC2 pin, perfect for audio
-  #define I2S_SD          33  // Shutdown pin - must be HIGH to enable amplifier
   #define SAMPLE_RATE     44100
 #endif
 
@@ -68,22 +65,122 @@
 #define LED_TYPE        WS2812B
 #define COLOR_ORDER     GRB
 
+// LED Strip Orientation Configuration
+#define FLIP_LED_STRIPS true  // Set to true for upside-down strip installation, false for normal
+
 // --------------------------------------------------------------------------
-// AUDIO DATA STRUCTURES
+// GAME PHYSICS & TIMING CONSTANTS
 // --------------------------------------------------------------------------
 
-struct ToneCmd { 
-  int freq; 
-  int duration; 
+// Physics constants
+const float GRAVITY = -0.008f;                           // Shot acceleration
+const float SHOT_INITIAL_VELOCITY = 2.0f;               // Starting shot speed
+const float RECOIL_AMOUNT = 3.0f;                       // Hero recoil distance
+
+// Timing constants
+const unsigned long CANNON_CHARGE_TIME = 2000;          // 2 seconds to fully charge
+const unsigned long CANNON_COOLDOWN = 5000;             // 5 seconds between cannon shots
+const unsigned long CANNON_HOLD_TIME = 2000;            // 2 seconds for cannon (controller)
+const unsigned long CHARGE_SOUND_DELAY = 500;           // Start charge sound after 500ms 
+const unsigned long CHARGE_SOUND_INTERVAL = 300;        // Charge pulse every 300ms
+const unsigned long STRIP_FIREWORK_DELAY = 1000;        // 1 second delay before fireworks
+const unsigned long INPUT_TIMEOUT_MS = 10000;           // Input timeout (10 seconds)
+const unsigned long FIRE_COOLDOWN_MS = 100;             // Fire cooldown to prevent button spam
+
+// Button detection (controller startup)
+const unsigned long BUTTON_CHECK_STARTUP_WINDOW = 2000;  // 2 seconds for startup button check  
+const unsigned long BUTTON_CHECK_INTERVAL = 100;        // 100ms button check frequency
+
+// Victory sequence timing
+const unsigned long RAINBOW_WIPE_DURATION = 1000;       // 1 second rainbow wipe
+const unsigned long VICTORY_MUSIC_DURATION = 5000;      // 5 seconds for dramatic victory music  
+const unsigned long FIREWORKS_END_DELAY = 8000;         // End fireworks at 8 seconds (more time)
+const unsigned long BLACKOUT_DELAY = 10000;              // Blackout at 10s, reset at 12s (more time)
+
+// Display constants
+const uint8_t LED_BRIGHTNESS = 255;                     // LED brightness (0-255) - maximum
+
+// Realistic Firework Physics (optimized for 100-LED strips)
+// Note: Adjusted for 70-80 LED explosion height and faster timing
+const float FIREWORK_GRAVITY = -0.003f;           // Balanced gravity for good hangtime and reliable explosion
+const float FIREWORK_LAUNCH_VEL_MIN = 0.65f;      // Controlled launch velocity for 70-80 LED height
+const float FIREWORK_LAUNCH_VEL_MAX = 0.85f;      // Controlled max velocity for 70-80 LED height
+const float FIREWORK_MAX_HEIGHT = 90.0f;          // Maximum height to prevent going off strip
+const float FIREWORK_BRIGHTNESS_FADE = 0.990f;    // Launch brightness fade per frame
+const float SPARK_FADE_RATE = 0.985f;             // Explosion spark fade rate per frame
+const float GRAVITY_WEAKENING = 0.992f;           // Gravity weakens as sparks burn out per frame
+const float COLOR_THRESHOLD_HIGH = 120.0f;        // White->yellow transition
+const float COLOR_THRESHOLD_LOW = 50.0f;          // Red->black transition
+const float FIXED_TIMESTEP = 4.0f;               // Target 240 FPS for extremely fast animation
+
+// Game limits
+const int MAX_SHOTS = 20;                               // Max shots to transmit
+const int MAX_ENEMIES = 30;                             // Max enemies to transmit  
+const int MAX_SPARKS = 50;                              // Max sparks to transmit
+const int MAX_WIPE_EFFECTS = 3;                         // Max wipe effects to transmit
+
+// Hardware pin definitions (board-specific)
+#ifdef M5STACK_ATOMS3
+  // M5Stack Atom S3 Lite (Console)
+  #define LED_PIN_ONBOARD 35       // GPIO35 - Onboard RGB LED (status)
+  #define LED_PIN_PM25    6        // GPIO6  - PM2.5 pollution strip (blue)
+  #define LED_PIN_NO2     7        // GPIO7  - NO2 pollution strip (red)  
+  #define LED_PIN_O3      8        // GPIO8  - O3 pollution strip (green)
+  #define NUM_ONBOARD_LEDS 1       // Single status LED
+#endif
+
+#ifdef QTPY_S3
+  // QT Py S3 (Controller)
+  #define PIN_BTN_BLUE    A0       // Blue arcade button (PM2.5 pollution)
+  #define PIN_BTN_RED     A1       // Red arcade button (NO2 pollution) 
+  #define PIN_BTN_GREEN   A2       // Green arcade button (O3 pollution)
+  #define NEOPIXEL_PIN    39       // QT Py S3 onboard NeoPixel
+  #define NEOPIXEL_POWER  38       // NeoPixel power control
+#endif
+
+// --------------------------------------------------------------------------
+// WHO AIR QUALITY GUIDELINES (2021 Annual Mean) - Universal thresholds
+// Source: WHO Global Air Quality Guidelines 2021
+// These are the same worldwide — not city-specific.
+// Values are expressed in the same units the WAQI API returns:
+//   PM2.5: µg/m³  (iaqi.pm25.v is raw µg/m³ — direct comparison)
+//   NO2:   ppb    (web UI manual input / WAQI iaqi.no2.v ≈ ppb at most stations)
+//   O3:    ppb    (web UI manual input / WAQI iaqi.o3.v ≈ ppb at most stations)
+// Approximate match is acceptable for gameplay purposes.
+// --------------------------------------------------------------------------
+const int WHO_PM25 = 5;   // 5 µg/m³  — WHO 2021 annual mean
+const int WHO_NO2  = 5;   // 5 ppb    — WHO 2021 annual mean (≈ 10 µg/m³)
+const int WHO_O3   = 30;  // 30 ppb   — WHO 2021 peak-season (≈ 60 µg/m³)
+
+// Enemy advance speed (pixels per frame at ~100 fps ≈ 1 pixel per 3 seconds)
+// Increase to make enemies feel more urgent; decrease for easier play.
+const float ENEMY_ADVANCE_SPEED = 0.020f;  // pixels/frame base advance speed
+
+// --------------------------------------------------------------------------
+// CITY DATA - Multi-city AQI roster
+// --------------------------------------------------------------------------
+struct CityData {
+  const char* name;    // Display name
+  const char* slug;    // WAQI API city slug (e.g. "barcelona")
+  int pm25;            // PM2.5 reading µg/m³ (fallback default)
+  int no2;             // NO₂ reading ppb (fallback default)
+  int o3;              // O₃ reading ppb (fallback default)
 };
 
-typedef std::vector<ToneCmd> Melody;
-
-enum SoundEvent { 
-  EVT_NONE=0, EVT_START, EVT_WIN, EVT_LOSE, EVT_MISTAKE,      
-  EVT_HIT_SUCCESS, EVT_SHOT_BLUE, EVT_SHOT_RED, EVT_SHOT_GREEN, EVT_SHOT_WHITE,
-  EVT_FIREWORK_LAUNCH, EVT_FIREWORK_EXPLODE, EVT_ENEMIES_BUILDING, EVT_LEVEL_VICTORY, EVT_SHOT_CANNON
+// Hardcoded city fallbacks — used if "Load All Cities" is never run.
+// Ordered by difficulty (easiest first). Default AQI values are conservative
+// estimates from recent annual averages; live data always takes priority.
+const CityData cityDefaults[] = {
+  { "Sydney",      "sydney",       6,  8,  30 },  // Easy
+  { "London",      "london",      10, 25,  40 },  // Easy-Med
+  { "Barcelona",   "barcelona",   12, 20,  45 },  // Medium
+  { "New York",    "new-york",    12, 22,  50 },  // Medium
+  { "Mexico City", "mexico-city", 20, 40,  55 },  // Hard
+  { "Shanghai",    "shanghai",    30, 35,  60 },  // Hard
+  { "Mumbai",      "mumbai",      45, 30,  50 },  // Very Hard
+  { "Delhi",       "delhi",       90, 50,  55 },  // Extreme
 };
+const int NUM_CITIES = sizeof(cityDefaults) / sizeof(cityDefaults[0]);
 
 // --------------------------------------------------------------------------
 // ENVIRONMENTAL DATA STRUCTURES
@@ -109,73 +206,54 @@ struct EnvironmentalShot {
   int color;
   int stripIndex;  // Which strip (0=PM2.5, 1=NO₂, 2=O₃)
   bool isCannonShot;  // True for 3x power cannon shots
+  bool active;        // Whether shot is active
   int size;  // 1 for normal, 3 for cannon shots
-  int damage;  // 1 for normal, 3 for cannon shots
+  int damage;  // 1 for normal, 4 for cannon shots
 };
 
 struct PollutionEnemy {
   float position;
+  float startPosition;         // Initial landed position (for reset)
   int color;
   int stripIndex;
   bool active;
-  int health;          // 4 hits required to destroy
-  int maxHealth;       // Original health for visual effects
-  float sparkTimer;    // Animation timer for damage effects
+  int health;                  // Hits required to destroy
+  int maxHealth;               // Original health for visual effects
+  unsigned long sparkTimer;    // Animation timer for damage effects
+  float advanceVelocity;       // Pixels per frame toward hero (base speed)
+  float phaseOffset;           // Per-enemy sine phase for wave-pulse motion
 };
 
 struct Spark {
   float position;
   float velocity;
-  float brightness;
+  uint8_t brightness;
   int color;
   bool active;
   int stripIndex;  // Which strip this spark belongs to
 };
 
-struct Shot {
-  float position;
-  float velocity;
-  int color;
-};
-
-struct Enemy {
-  float position;
-  int color;
-  bool active;
-  float speed;
-  int originalIndex;
-};
-
-struct BossSegment {
-  float position;
-  int color;
-  bool active;
-  int originalIndex;
-};
-
-struct BossProjectile {
-  float position;
-  int color;
-};
-
-struct BossConfig {
-  int numSegments;
-  float speed;
-  float shotFreq;
-  int hits;
-};
-
-struct Firework {
-  float position;
-  float velocity;
-  float brightness;
-  int color;
-  bool active;
-  bool exploded;    // Whether the firework has exploded
-  int stripIndex;
-  int type;      // 0=normal, 1=delayed, 2=cascade
-  float delay;   // For delayed fireworks
-  int cascadeLevel;  // For multi-stage effects
+struct RealisticFirework {
+    // Launch phase
+    float flarePos;
+    float flareVel; 
+    float brightness;
+    int stripIndex;
+    bool active;
+    
+    // Launch trail sparks (5 sparks following behind)
+    float trailSparkPos[5];
+    float trailSparkVel[5];
+    float trailSparkCol[5];
+    
+    // Explosion phase
+    bool exploded;
+    bool launchPhase;  // true during launch, false during explosion
+    int nExplosionSparks;
+    float explosionSparkPos[51];  // Reduced for 100-LED strips (vs 120 in reference)
+    float explosionSparkVel[51];
+    float explosionSparkCol[51];
+    float dyingGravity;
 };
 
 struct WipeEffect {
@@ -190,112 +268,11 @@ struct WipeEffect {
 
 // Environmental Game State
 enum EnvironmentalState {
-  STATE_WIFI_CONNECTING,
-  STATE_FETCHING_DATA,
-  STATE_COLUMN_FILLING,
-  STATE_ENVIRONMENTAL_GAME,
-  STATE_DATA_ERROR,
-  STATE_ENVIRONMENTAL_WIN
+  STATE_ATTRACT,               // Attract/demo loop shown before city-select and after inactivity
+  STATE_CITY_SELECT,           // Browse & confirm city before game starts
+  STATE_INTRO_ANIMATION,       // Cinematic intro wave
+  STATE_ENEMIES_FALLING,       // Dynamic enemy drop-in physics
+  STATE_WAITING_FOR_PLAYER,    // All enemies settled; waiting for controller 3-2-1 countdown to end
+  STATE_ENVIRONMENTAL_GAME
 };
 
-// --------------------------------------------------------------------------
-// GLOBAL VARIABLES DECLARATIONS (defined in main.cpp)
-// --------------------------------------------------------------------------
-
-// Environmental Game Variables
-extern bool wifiConnected;
-extern std::vector<EnvironmentalShot> environmentalShots;
-extern std::vector<PollutionEnemy> pollutionEnemies[NUM_STRIPS];  // Array of vectors for each strip
-extern std::vector<Spark> sparks;
-extern std::vector<Firework> fireworks;
-extern std::vector<WipeEffect> wipeEffects;
-
-// LED strip pointers for each pollution type
-extern CRGB* stripPM25;  // Blue strip for PM2.5 fine particles
-extern CRGB* stripNO2;   // Red strip for NO₂ nitrogen dioxide  
-extern CRGB* stripO3;    // Green strip for O₃ ozone
-
-// Game state variables
-extern EnvironmentalState currentState;
-extern AirQualityData currentAQI;
-extern bool gameInitialized;
-extern unsigned long stateStartTime;
-extern unsigned long lastUpdate;
-extern float gravity;
-
-// Column animation variables
-extern int currentColumnHeights[NUM_STRIPS];
-extern int targetColumnHeights[NUM_STRIPS];
-extern bool columnAnimationComplete;
-extern unsigned long lastColumnUpdate;
-
-// Victory and completion tracking
-extern bool stripCompleted[NUM_STRIPS];
-extern int completedStripCount;
-extern bool allStripsCompleteEffect;
-
-// Hero/player variables
-extern float heroPosition;
-extern int heroSize;
-extern bool heroGrowing;
-extern unsigned long heroGrowthStartTime;
-extern bool cannonCharging;
-extern unsigned long cannonChargeStartTime;
-
-// Audio system variables
-extern bool audioEnabled;
-extern QueueHandle_t audioQueue;
-extern TaskHandle_t audioTaskHandle;
-extern bool priorityMelodyPlaying;
-
-// Audio system variables
-extern bool audioEnabled;
-extern QueueHandle_t audioQueue;
-extern TaskHandle_t audioTaskHandle;
-extern bool priorityMelodyPlaying;
-extern bool config_sound_on;
-extern int config_volume_pct;
-
-// Audio melodies
-extern Melody melStart, melWin, melLose, melMistake, melShotBlue, melShotRed, melShotGreen, melShotWhite, melHit;
-extern Melody melShotCannon;
-extern Melody melFireworkLaunch, melFireworkExplode;
-extern Melody melEnemiesBuilding, melLevelVictory;
-
-// Button state tracking
-extern bool lastBlueState, lastRedState, lastGreenState;
-extern unsigned long lastBluePress, lastRedPress, lastGreenPress;
-
-// Web server and configuration
-extern WebServer server;
-extern Preferences preferences;
-
-// WiFi Configuration - ACCESS POINT MODE (No external WiFi needed!)
-extern bool useAccessPointMode;
-extern String config_ssid;
-extern String config_pass;
-extern String ap_ssid;
-extern String ap_pass;
-
-// Game configuration  
-extern CRGB* leds;
-extern int config_num_leds;
-extern int config_brightness_pct;
-extern bool config_static_ip;
-extern String config_ip, config_gateway, config_subnet, config_dns;
-
-// Legacy game variables (maintained for compatibility)
-extern std::vector<Enemy> enemies;
-extern std::vector<Shot> shots;
-extern int currentLevel;
-extern int enemyFrontIndex;
-extern unsigned long levelStartTime;
-extern float enemySpeed;
-extern unsigned long lastEnemyMove;
-extern unsigned long lastShotMove;
-extern bool gameRunning;
-
-// Constants
-extern const float HERO_SPEED;
-extern const float SHOT_SPEED;
-extern const int DEBOUNCE_DELAY;

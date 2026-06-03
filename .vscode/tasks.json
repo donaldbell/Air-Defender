@@ -15,7 +15,7 @@
 			"group": "build"
 		},
 		{
-			"label": "Upload Display",
+			"label": "Upload Controller",
 			"type": "shell",
 			"command": "platformio",
 			"args": [
@@ -23,7 +23,7 @@
 				"--target",
 				"upload",
 				"--environment",
-				"display"
+				"controller"
 			],
 			"group": "build"
 		},
@@ -41,17 +41,32 @@
 			"group": "monitor"
 		},
 		{
-			"label": "Monitor Display",
+			"label": "Monitor Controller",
 			"type": "shell",
 			"command": "platformio",
 			"args": [
 				"device",
 				"monitor",
 				"--environment",
-				"display"
+				"controller"
 			],
 			"isBackground": true,
 			"group": "monitor"
+		},
+		{
+			"label": "Build All Environments",
+			"type": "shell",
+			"command": "platformio",
+			"args": [
+				"run"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build Controller Test",
+			"type": "shell",
+			"command": "pio run --environment controller",
+			"group": "build"
 		}
 	]
 }

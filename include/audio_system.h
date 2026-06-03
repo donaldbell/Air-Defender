@@ -1,6 +1,31 @@
 #pragma once
 
-#include "game_config.h"
+#include <Arduino.h>
+#include <vector>
+
+// --------------------------------------------------------------------------
+// AUDIO DATA STRUCTURES
+// --------------------------------------------------------------------------
+
+struct ToneCmd { 
+  int freq; 
+  int duration; 
+};
+
+typedef std::vector<ToneCmd> Melody;
+
+enum SoundEvent { 
+  EVT_NONE=0, EVT_START, EVT_WIN, EVT_LOSE, EVT_MISTAKE,      
+  EVT_HIT_SUCCESS, EVT_SHOT_BLUE, EVT_SHOT_RED, EVT_SHOT_GREEN, EVT_SHOT_WHITE,
+  EVT_FIREWORK_LAUNCH, EVT_FIREWORK_EXPLODE, EVT_ENEMIES_BUILDING, EVT_LEVEL_VICTORY, EVT_SHOT_CANNON,
+  // New events
+  EVT_CITY_SELECT,        // Cheerful chime when player confirms a city
+  EVT_ENEMY_ENCROACH,     // Low warning pulse when enemy is close to hero
+  EVT_HERO_DEATH,         // Dramatic descending tones on death (alias for EVT_LOSE visual)
+  EVT_THEME,              // Short ambient intro jingle
+  EVT_GAME_START,         // Energetic jingle when player exits attract screen
+  EVT_COMET_LAUNCH        // High-pitched descending sweep when enemy comet fires
+};
 
 // --------------------------------------------------------------------------
 // AUDIO SYSTEM DECLARATIONS
@@ -27,22 +52,3 @@ void setAudioVolume(int volume);  // 0-100
 bool queueAudioEvent(SoundEvent evt);
 void clearAudioQueue();
 int getQueuedEventCount();
-
-// Melody strings for different events
-extern const String MELODY_SHOT_BLUE;
-extern const String MELODY_SHOT_RED;
-extern const String MELODY_SHOT_GREEN;
-extern const String MELODY_ENEMY_HIT;
-extern const String MELODY_ENEMY_DESTROYED;
-extern const String MELODY_PLAYER_HIT;
-extern const String MELODY_LEVEL_COMPLETE;
-extern const String MELODY_GAME_OVER;
-extern const String MELODY_BUTTON_PRESS;
-extern const String MELODY_POWER_UP;
-extern const String MELODY_VICTORY;
-extern const String MELODY_BOSS_DEFEAT;
-extern const String MELODY_ENEMIES_BUILDING;
-extern const String MELODY_POWER_UP;
-extern const String MELODY_VICTORY;
-extern const String MELODY_BOSS_DEFEAT;
-extern const String MELODY_ENEMIES_BUILDING;
