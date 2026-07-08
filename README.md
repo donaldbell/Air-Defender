@@ -2,7 +2,9 @@
 
 Air Defender is a wireless, interactive air-quality game built for two ESP32-based boards. One board acts as the game console and visual stage, while the other acts as the controller and user interface. Together they turn real-world air pollution data into a fast-paced, educational arcade experience.
 
-The project was originally started under the working title "1D Enviro Game", but the game is now presented as Air Defender.
+I made this game as a fun way to visualize an issue that is essentially invisible. In most cases, the quality of the air we breathe is impossible to see, smell or taste. And so, scientific sensors can be used to measure different forms of contamination. Websites such as [waqi.info](http://waqi.info/) (used here) publish the real-time results of these measurements from around the world.
+
+We tend not to think about air quality until it becomes a problem. This game offers an entertaining way to provide an awareness of air quality levels locally and around the world. By making it a battle game players have a sense of agency in combating contamination.
 
 ## Visual preview
 
@@ -139,6 +141,23 @@ The selected language can be changed through the controller configuration interf
 - 20x4 I2C LCD display
 - Audio output hardware
 - Onboard NeoPixel status light
+
+## Creator statement
+
+I made this game as a fun way to visualize an issue that is essentially invisible. In most cases, the quality of the air we breathe is impossible to see, smell or taste. And so, scientific sensors can be used to measure different forms of contamination. Websites such as [waqi.info](http://waqi.info/) (used here) publish the real-time results of these measurements from around the world.
+
+We tend not to think about air quality until it becomes a problem. This game offers an entertaining way to provide an awareness of air quality levels locally and around the world. By making it a battle game players have a sense of agency in combating contamination.
+
+### Components used in this project
+
+- M5Stack Atom S3 Lite ESP32-S3 (4MB Flash)
+- 3× WS2812B LED strips, 100 LEDs each
+- Adafruit QT Py ESP32-S3 (4MB Flash, 2MB PSRAM)
+- 3× Arcade buttons
+- 20×4 character I2C LCD
+- I2S digital audio amplifier
+- Speaker
+- 12v/5v DC-DC converter
 
 ## Design files and 3D models
 
