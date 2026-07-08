@@ -21,7 +21,6 @@ It's me, showing how the controller can be picked up and used wirelessly.
 ## Demo
 
 Watch a short demo of Air Defender in action: https://youtube.com/shorts/qmZg_ptcQ0Y?feature=share
-(https://youtube.com/shorts/qmZg_ptcQ0Y?feature=share)
 
 ## What the game does
 
