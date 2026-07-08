@@ -10,21 +10,13 @@ The project was originally started under the working title "1D Enviro Game", but
 
 Controller and LCD interface for Air Defender.
 
-![LED strip demo](assets/air-defender-strip-demo.jpg)
-
-Three LED lanes light up based on pollutant status.
-
-![Installation view](assets/air-defender-installation.jpg)
-
-Wall-mounted installation demo.
-
 ![Wall display](assets/air-defender-wall-display.jpg)
 
 Full vertical display with the Air Defender branding.
 
 ![Player interaction](assets/air-defender-player.jpg)
 
-Player using the controller to clean the air.
+It's me, showing how the controller can be used wirelessly.
 
 ## Demo
 
