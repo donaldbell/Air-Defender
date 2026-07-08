@@ -26,6 +26,14 @@ Full vertical display with the Air Defender branding.
 
 Player using the controller to clean the air.
 
+## Demo
+
+Watch a short demo of Air Defender in action:
+
+[YouTube Short: Air Defender demo](https://youtube.com/shorts/qmZg_ptcQ0Y?feature=share)
+
+If you'd like the video embedded on the project site, the Pages `index.md` includes an inline embed.
+
 ## What the game does
 
 Air Defender turns three major pollutants into three playable lanes:
