@@ -30,9 +30,9 @@ Player using the controller to clean the air.
 
 Watch a short demo of Air Defender in action:
 
-[YouTube Short: Air Defender demo](https://youtube.com/shorts/qmZg_ptcQ0Y?feature=share)
+[![Watch demo](assets/air-defender-demo.gif)](https://youtube.com/shorts/qmZg_ptcQ0Y?feature=share)
 
-If you'd like the video embedded on the project site, the Pages `index.md` includes an inline embed.
+Click the animated preview to open the full demo on YouTube. The Pages site also hosts the original video file for direct playback.
 
 ## What the game does
 
