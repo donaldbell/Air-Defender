@@ -275,7 +275,7 @@ static const GameStrings STRINGS_ES = {
 
     /* countdown_label */ "BATALLA EN",
 
-    /* defeat_title */ "  POLUCI\x04N GANA!  ",
+    /* defeat_title */ "    SMOG GANA!    ",
 
     /* score_o3_label    */ "OZONO:",
     /* gate_today_prefix */ "Hoy: ",
@@ -347,7 +347,7 @@ static const GameStrings STRINGS_CA = {
 
     /* countdown_label */ "BATALLA EN",
 
-    /* defeat_title */ " POL\x03LUCI\x02 GUANYA!",
+    /* defeat_title */ "   SMOG GUANYA!   ",
 
     /* score_o3_label    */ "  OZ\x02:",           // \u201c  OZÓ:” — 6 display chars
     /* gate_today_prefix */ "Avui: ",

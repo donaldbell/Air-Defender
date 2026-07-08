@@ -135,26 +135,6 @@ public:
     void displayWaiting();
 
     /**
-     * Begin a typewriter animation for a 4-row LCD screen.
-     * Row 0 (header) is printed instantly; rows 1–3 animate character by character.
-     * Call updateTypewriter() each loop() iteration until it returns true.
-     * @param r0–r3  Pre-formatted 20-char strings for each LCD row
-     */
-    void startTypewriter(const char* r0, const char* r1, const char* r2, const char* r3);
-
-    /**
-     * Advance the typewriter animation by one character if the inter-character
-     * delay has elapsed. Safe to call every loop() tick — returns immediately
-     * when no animation is active.
-     * @param now  Current millis() value
-     * @return true when all rows have been fully printed (or no animation running)
-     */
-    bool updateTypewriter(unsigned long now);
-
-    /** True while a typewriter animation is still in progress. */
-    bool isTypewriterActive() const { return _twActive; }
-
-    /**
      * Scan I2C bus for LCD device (debugging)
      * @return true if LCD found at expected address
      */
@@ -202,14 +182,6 @@ private:
     String centerText(const String& text, int width);
 
     int _defeatWipePos;  // how many cells have been filled in the smog wipe
-
-    // Typewriter animation state
-    char          _twRows[4][21];   // buffered row text (≤20 chars + null)
-    int           _twRow;           // row currently being typed (1–3; row 0 is instant)
-    int           _twCol;           // next character column within _twRow
-    unsigned long _twLastMs;        // millis() of last character printed
-    bool          _twActive;        // true while animation is running
-    static const int TW_CHAR_DELAY_MS = 30;  // ms per character
 };
 
 #endif // LCD_DISPLAY_H

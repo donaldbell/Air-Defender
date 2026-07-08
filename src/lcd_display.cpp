@@ -6,9 +6,7 @@
 #include "lcd_display.h"
 #include <Wire.h>
 
-LCDDisplay::LCDDisplay() : lcd(LCD_I2C_ADDR, LCD_COLS, LCD_ROWS), lcdReady(false), activeStrings(&STRINGS_EN),
-    _twRow(0), _twCol(0), _twLastMs(0), _twActive(false) {
-    memset(_twRows, 0, sizeof(_twRows));
+LCDDisplay::LCDDisplay() : lcd(LCD_I2C_ADDR, LCD_COLS, LCD_ROWS), lcdReady(false), activeStrings(&STRINGS_EN) {
 }
 
 void LCDDisplay::setLanguage(int lang) {
@@ -315,19 +313,6 @@ void LCDDisplay::displayDefeatScreen(const char* cityName) {
     lcd.clear();
     initCustomChars();
     lcd.createChar(0, skull);
-    // Slot 3 normally holds ò (Catalan); it is unused in every defeat-screen
-    // string, so borrow it for the interpunct (·) in "pol·lució".
-    uint8_t middleDot[8] = {
-        0b00000,  // .....
-        0b00000,  // .....
-        0b00000,  // .....
-        0b00100,  // ..█..
-        0b00000,  // .....
-        0b00000,  // .....
-        0b00000,  // .....
-        0b00000   // .....
-    };
-    lcd.createChar(3, middleDot);
     lcd.setCursor(0, 0);  // return cursor to DDRAM after createChar
 
     // Row 0: skull + 4 spaces + title + 4 spaces + skull = 20 chars exactly
@@ -520,61 +505,10 @@ String LCDDisplay::centerText(const String& text, int width) {
     return centered;
 }
 
-// -----------------------------------------------------------------------------
-// Typewriter animation — row-by-row character reveal
-// -----------------------------------------------------------------------------
-
-void LCDDisplay::startTypewriter(const char* r0, const char* r1, const char* r2, const char* r3) {
-    if (!lcdReady) return;
-
-    // Buffer all 4 rows (pre-formatted, centred, ≤20 chars)
-    strncpy(_twRows[0], r0 ? r0 : "", 20); _twRows[0][20] = '\0';
-    strncpy(_twRows[1], r1 ? r1 : "", 20); _twRows[1][20] = '\0';
-    strncpy(_twRows[2], r2 ? r2 : "", 20); _twRows[2][20] = '\0';
-    strncpy(_twRows[3], r3 ? r3 : "", 20); _twRows[3][20] = '\0';
-
-    lcd.clear();
-    initCustomChars();
-
-    // Row 0 (header/title) appears instantly to give immediate context
-    lcd.setCursor(0, 0);
-    lcd.print(_twRows[0]);
-
-    // Rows 1–3 will be revealed character by character via updateTypewriter()
-    _twRow    = 1;
-    _twCol    = 0;
-    _twLastMs = 0;  // zero forces the first character on the very next call
-    _twActive = true;
-}
-
-bool LCDDisplay::updateTypewriter(unsigned long now) {
-    if (!_twActive) return true;
-    if (!lcdReady)  { _twActive = false; return true; }
-
-    if (now - _twLastMs < (unsigned long)TW_CHAR_DELAY_MS) return false;
-    _twLastMs = now;
-
-    // Advance through rows until we find the next character to print
-    while (_twRow < 4) {
-        int len = (int)strlen(_twRows[_twRow]);
-        if (_twCol < len) {
-            lcd.setCursor(_twCol, _twRow);
-            lcd.print(_twRows[_twRow][_twCol]);
-            _twCol++;
-            return false;  // still animating
-        }
-        // Current row exhausted — move to the next
-        _twRow++;
-        _twCol = 0;
-    }
-
-    _twActive = false;
-    return true;
-}
-
 void LCDDisplay::displayStripIntro(int stripIndex, int slideNum, int cityValue, const char* cityName) {
     if (!lcdReady) return;
-    // lcd.clear() and initCustomChars() are handled inside startTypewriter()
+    lcd.clear();
+    initCustomChars();
 
     int si = constrain(stripIndex, 0, 2);
     const char* units[3] = { "ug/m3", "ppb", "ppb" };
@@ -600,20 +534,17 @@ void LCDDisplay::displayStripIntro(int stripIndex, int slideNum, int cityValue, 
     const char* nextLine2[3] = { activeStrings->gate_next_r2, activeStrings->gate_next_r2, activeStrings->gate_last_r2 };
     const char* nextLine3[3] = { activeStrings->gate_next_r3, activeStrings->gate_next_r3, activeStrings->gate_last_r3 };
 
-    // Build the four centred row strings, then hand them to the typewriter.
-    String r0, r1, r2, r3;
-
     if (slideNum == 0) {
-        r0 = centerText(slide0[si].r0, LCD_COLS);
-        r1 = centerText(slide0[si].r1, LCD_COLS);
-        r2 = centerText(slide0[si].r2, LCD_COLS);
-        r3 = centerText(slide0[si].r3, LCD_COLS);
+        lcd.setCursor(0, 0); lcd.print(centerText(slide0[si].r0, LCD_COLS));
+        lcd.setCursor(0, 1); lcd.print(centerText(slide0[si].r1, LCD_COLS));
+        lcd.setCursor(0, 2); lcd.print(centerText(slide0[si].r2, LCD_COLS));
+        lcd.setCursor(0, 3); lcd.print(centerText(slide0[si].r3, LCD_COLS));
 
     } else if (slideNum == 1) {
-        r0 = centerText(slide1[si].r0, LCD_COLS);
-        r1 = centerText(slide1[si].r1, LCD_COLS);
-        r2 = centerText(slide1[si].r2, LCD_COLS);
-        r3 = centerText(slide1[si].r3, LCD_COLS);
+        lcd.setCursor(0, 0); lcd.print(centerText(slide1[si].r0, LCD_COLS));
+        lcd.setCursor(0, 1); lcd.print(centerText(slide1[si].r1, LCD_COLS));
+        lcd.setCursor(0, 2); lcd.print(centerText(slide1[si].r2, LCD_COLS));
+        lcd.setCursor(0, 3); lcd.print(centerText(slide1[si].r3, LCD_COLS));
 
     } else {
         // Slide 2: city's level vs goal + button prompt (gate slide — no auto-advance)
@@ -622,13 +553,14 @@ void LCDDisplay::displayStripIntro(int stripIndex, int slideNum, int cityValue, 
         const char* o3name = activeStrings->gate_o3_name;
         String titleLine = sanitizeForLCD(String(cityName)) + " " + String(si == 2 ? o3name : pollutantShortNames[si]);
         if ((int)titleLine.length() > LCD_COLS) titleLine = titleLine.substring(0, LCD_COLS);
-        r0 = centerText(titleLine, LCD_COLS);
-        r1 = centerText(String(activeStrings->gate_today_prefix) + String(cityValue) + " " + String(units[si]), LCD_COLS);
-        r2 = centerText(String(nextLine2[si]), LCD_COLS);
-        r3 = centerText(String(nextLine3[si]), LCD_COLS);
-    }
+        lcd.setCursor(0, 0); lcd.print(centerText(titleLine, LCD_COLS));
 
-    startTypewriter(r0.c_str(), r1.c_str(), r2.c_str(), r3.c_str());
+        String todayLine = String(activeStrings->gate_today_prefix) + String(cityValue) + " " + String(units[si]);
+        lcd.setCursor(0, 1); lcd.print(centerText(todayLine, LCD_COLS));
+
+        lcd.setCursor(0, 2); lcd.print(centerText(String(nextLine2[si]), LCD_COLS));
+        lcd.setCursor(0, 3); lcd.print(centerText(String(nextLine3[si]), LCD_COLS));
+    }
 }
 
 void LCDDisplay::displayCountdown(int n) {

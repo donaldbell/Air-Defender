@@ -48,8 +48,19 @@
 // HARDWARE CONFIGURATION - QT Py S3
 // =============================================================================
 
+// Pin definitions for QT Py ESP32-S3 - Three Arcade Buttons
+#define PIN_BTN_BLUE    A0      // Blue arcade button (PM2.5 pollution)
+#define PIN_BTN_RED     A1      // Red arcade button (NO2 pollution) 
+#define PIN_BTN_GREEN   A2      // Green arcade button (O3 pollution)
+
+
+// RGB NeoPixel (onboard status indicator)
+#define NEOPIXEL_PIN    39      // QT Py S3 onboard NeoPixel
+#define NEOPIXEL_POWER  38      // NeoPixel power control
+
 // Console MAC address (from console board upload: 34:b7:da:57:36:fc)
 uint8_t consoleMacAddress[6] = {0x34, 0xb7, 0xda, 0x57, 0x36, 0xfc};
+esp_now_peer_info_t peerInfo;
 
 // =============================================================================
 // UNIFIED MODULE INSTANCES
@@ -772,7 +783,6 @@ void handleArcadeButtons() {
     bool greenPressed = (digitalRead(PIN_BTN_GREEN) == LOW);
 
     unsigned long now = millis();
-    static unsigned long lastCannonFire[3] = {0, 0, 0};  // Per-strip cannon cooldown tracking
 
     // -------------------------------------------------------------------------
     // ATTRACT MODE — any button press exits to city select
@@ -955,7 +965,7 @@ void handleArcadeButtons() {
     if (bluePressed) {
         unsigned long held = now - bluePressStart;
         // Send charging start message at exactly 1 second
-        if (held >= 1000 && !blueChargingMessageSent && (now - lastCannonFire[0] >= CANNON_COOLDOWN)) {
+        if (held >= 1000 && !blueChargingMessageSent) {
             sendChargingStartMessage(0);  // Strip 0 = Blue
             blueChargingMessageSent = true;
             DBG_VERBOSE("BLUE charging started\n");
@@ -982,7 +992,7 @@ void handleArcadeButtons() {
     if (!bluePressed && blueWasPressed) {
         unsigned long held = now - bluePressStart;
         
-        if (held >= CANNON_CHARGE_TIME && (now - lastCannonFire[0] >= CANNON_COOLDOWN)) {
+        if (held >= CANNON_CHARGE_TIME) {
             if (stripAudioEnabled[0]) { // Blue = strip 0 (PM2.5)
                 playSound(EVT_SHOT_CANNON);
             }
@@ -993,7 +1003,6 @@ void handleArcadeButtons() {
             lastBlueStage = -1;
             lastBlueChargeSound = 0;
             
-            lastCannonFire[0] = now;
             sendFireCommand(CMD_CANNON_BLUE);
             DBG_VERBOSE("BLUE cannon\n");
         } else if (held > 20) {
@@ -1015,7 +1024,7 @@ void handleArcadeButtons() {
     if (redPressed) {
         unsigned long held = now - redPressStart;
         // Send charging start message at exactly 1 second
-        if (held >= 1000 && !redChargingMessageSent && (now - lastCannonFire[1] >= CANNON_COOLDOWN)) {
+        if (held >= 1000 && !redChargingMessageSent) {
             sendChargingStartMessage(1);  // Strip 1 = Red
             redChargingMessageSent = true;
             DBG_VERBOSE("RED charging started\n");
@@ -1042,7 +1051,7 @@ void handleArcadeButtons() {
     if (!redPressed && redWasPressed) {
         unsigned long held = now - redPressStart;
         
-        if (held >= CANNON_CHARGE_TIME && (now - lastCannonFire[1] >= CANNON_COOLDOWN)) {
+        if (held >= CANNON_CHARGE_TIME) {
             if (stripAudioEnabled[1]) { // Red = strip 1 (NO2)
                 playSound(EVT_SHOT_CANNON);
             }
@@ -1053,7 +1062,6 @@ void handleArcadeButtons() {
             lastRedStage = -1;
             lastRedChargeSound = 0;
             
-            lastCannonFire[1] = now;
             sendFireCommand(CMD_CANNON_RED);
             DBG_VERBOSE("RED cannon\n");
         } else if (held > 20) {
@@ -1075,7 +1083,7 @@ void handleArcadeButtons() {
     if (greenPressed) {
         unsigned long held = now - greenPressStart;
         // Send charging start message at exactly 1 second
-        if (held >= 1000 && !greenChargingMessageSent && (now - lastCannonFire[2] >= CANNON_COOLDOWN)) {
+        if (held >= 1000 && !greenChargingMessageSent) {
             sendChargingStartMessage(2);  // Strip 2 = Green
             greenChargingMessageSent = true;
             DBG_VERBOSE("GREEN charging started\n");
@@ -1102,7 +1110,7 @@ void handleArcadeButtons() {
     if (!greenPressed && greenWasPressed) {
         unsigned long held = now - greenPressStart;
         
-        if (held >= CANNON_CHARGE_TIME && (now - lastCannonFire[2] >= CANNON_COOLDOWN)) {
+        if (held >= CANNON_CHARGE_TIME) {
             if (stripAudioEnabled[2]) { // Green = strip 2 (O3)
                 playSound(EVT_SHOT_CANNON);
             }
@@ -1113,7 +1121,6 @@ void handleArcadeButtons() {
             lastGreenStage = -1;
             lastGreenChargeSound = 0;
             
-            lastCannonFire[2] = now;
             sendFireCommand(CMD_CANNON_GREEN);
             DBG_VERBOSE("GREEN cannon\n");
         } else if (held > 20) {
@@ -1128,16 +1135,6 @@ void handleArcadeButtons() {
 }
 
 void sendFireCommand(CommandType fireType) {
-    // Stagger rapid sends so the ESP-NOW TX queue doesn't overflow when all
-    // three buttons are mashed simultaneously.  20 ms is imperceptible to
-    // players but gives the radio time to hand off the previous packet.
-    unsigned long now = millis();
-    unsigned long elapsed = now - lastFireTime;
-    if (lastFireTime > 0 && elapsed < 20) {
-        delay(20 - elapsed);
-    }
-    lastFireTime = millis();
-
     ConsoleMessage command;
     command.command = (uint8_t)fireType;  // Cast enum to uint8_t to match console structure
     memset(command.data, 0, sizeof(command.data));
@@ -1146,14 +1143,14 @@ void sendFireCommand(CommandType fireType) {
     bool result = comm.sendMessage(consoleMacAddress, &command, sizeof(command));
 
     if (result) {
-        // Brief LED flash to confirm button press — no blocking delay so the
-        // main loop stays responsive during rapid button mashing.
+        // Brief LED flash to confirm button press
         uint8_t r, g, b;
         if (fireType == CMD_FIRE_BLUE) { r = 0; g = 0; b = 8; }     // Blue
         else if (fireType == CMD_FIRE_RED) { r = 8; g = 0; b = 0; } // Red
         else { r = 0; g = 8; b = 0; }                               // Green
 
         neopixelWrite(NEOPIXEL_PIN, r, g, b);
+        delay(50);
         statusLED.setColor(0, 255, 0); // Green
     } else {
         DBG_ERROR("Failed to send fire command\n");
@@ -1385,9 +1382,6 @@ void loop() {
                 lcdDisplay.displayDefeatScreen(confirmedCityName.c_str());
             }
         }
-
-        // Typewriter animation for intro slides — advance one character per tick
-        lcdDisplay.updateTypewriter(millis());
 
         // Auto-advance intro slides (only slides 0+1 of each pollutant — gate slides require button press)
         if (inIntroSlides && (introSlideIndex % 3 != 2) && millis() - slideStartTime >= SLIDE_DURATION_MS) {
