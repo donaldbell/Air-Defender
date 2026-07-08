@@ -4,6 +4,28 @@ Air Defender is a wireless, interactive air-quality game built for two ESP32-bas
 
 The project was originally started under the working title "1D Enviro Game", but the game is now presented as Air Defender.
 
+## Visual preview
+
+![Air Defender Controller](assets/air-defender-controller.jpg)
+
+Controller and LCD interface for Air Defender.
+
+![LED strip demo](assets/air-defender-strip-demo.jpg)
+
+Three LED lanes light up based on pollutant status.
+
+![Installation view](assets/air-defender-installation.jpg)
+
+Wall-mounted installation demo.
+
+![Wall display](assets/air-defender-wall-display.jpg)
+
+Full vertical display with the Air Defender branding.
+
+![Player interaction](assets/air-defender-player.jpg)
+
+Player using the controller to clean the air.
+
 ## What the game does
 
 Air Defender turns three major pollutants into three playable lanes:
