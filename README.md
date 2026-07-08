@@ -144,6 +144,10 @@ The selected language can be changed through the controller configuration interf
 - Audio output hardware
 - Onboard NeoPixel status light
 
+## Design files and 3D models
+
+Physical designs, enclosures, and signage are available as public Tinkercad projects. See [DESIGN.md](DESIGN.md) for links to the controller panel, wall-mount holders, toppers, and branding sign.
+
 ## Build and upload
 
 This project uses PlatformIO.
