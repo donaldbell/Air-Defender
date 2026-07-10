@@ -4,6 +4,8 @@ Air Defender is a wireless, interactive air-quality game built for two ESP32-bas
 
 The project was originally started under the working title "1D Enviro Game", but the game is now presented as Air Defender.
 
+Language: [English](./index.md) | [Español](./es/index.md)
+
 ## Visual preview
 
 ![Air Defender Controller](assets/air-defender-controller.jpg)
