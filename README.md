@@ -6,6 +6,14 @@ I made this game as a fun way to visualize an issue that is essentially invisibl
 
 We tend not to think about air quality until it becomes a problem. This game offers an entertaining way to provide an awareness of air quality levels locally and around the world. By making it a battle game players have a sense of agency in combating contamination.
 
+## Try it in your browser
+
+You can explore a browser-based version of the game here:
+
+- [Play the interactive simulation](https://donaldbell.github.io/Air-Defender/web-sim/)
+
+This web version preserves the arcade feel of the hardware build and includes the in-game language toggle so you can switch between supported languages while playing.
+
 ## Visual preview
 
 ![Air Defender Controller](assets/air-defender-controller.jpg)

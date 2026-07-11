@@ -8,9 +8,11 @@ Language: [English](./index.md) | [Español](./es/index.md)
 
 ## Interactive simulation
 
-Try the browser-based version of Air Defender here:
+Play the browser-based version of Air Defender here:
 
 - [Play the interactive simulation](./web-sim/)
+
+This demo brings the hardware game into the browser and uses the same built-in language toggle so you can switch languages while exploring the experience.
 
 ## Visual preview
 

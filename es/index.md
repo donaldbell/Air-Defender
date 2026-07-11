@@ -206,6 +206,8 @@ Prueba la versión del juego en navegador aquí:
 
 - [Abrir la simulación interactiva](../web-sim/)
 
+Esta demo convierte el juego de hardware en una experiencia navegable y usa el mismo selector de idioma integrado para cambiar entre idiomas mientras juegas.
+
 ---
 
 Volver a la [versión en inglés](../index.md).
