@@ -1,0 +1,1474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Air Defender — Interactive Simulation</title>
+<meta name="description" content="Interactive browser simulation of Air Defender, an ESP32-powered arcade game that turns real-world air pollution data into a fast-paced, educational battle against smog — built by Donald Bell.">
+<meta name="theme-color" content="#16181c">
+<link rel="canonical" href="https://donaldbell.github.io/Air-Defender/web-sim/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2316181c'/%3E%3Ccircle cx='9' cy='23' r='3.4' fill='%230a4cff'/%3E%3Ccircle cx='16' cy='16' r='3.4' fill='%23ff2a1a'/%3E%3Ccircle cx='23' cy='9' r='3.4' fill='%2322c94a'/%3E%3C/svg%3E">
+<!-- Open Graph / Twitter — used if this page is linked to directly, or shared apart from the blog embed -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="Air Defender — Interactive Simulation">
+<meta property="og:description" content="Play a browser simulation of Air Defender, an ESP32-powered arcade game that turns real-world air pollution data into a fast-paced, educational battle against smog.">
+<meta property="og:url" content="https://donaldbell.github.io/Air-Defender/web-sim/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Air Defender — Interactive Simulation">
+<meta name="twitter:description" content="Play a browser simulation of Air Defender, an ESP32-powered arcade game that turns real-world air pollution data into a fast-paced, educational battle against smog.">
+<style>
+  /* ── Palette: dark exhibition wall, 3D-print gray pods, LED light does the talking ── */
+  :root {
+    --wall: #16181c;
+    --wall-2: #1c1f24;
+    --pod: #c9cbc6;          /* 3D-printed PLA gray */
+    --pod-dark: #8f918d;
+    --pod-shadow: #55575a;
+    --lcd-bg: #a6bd15;       /* classic HD44780 yellow-green backlight */
+    --lcd-text: #1b2705;
+    --ink: #d7d9dc;
+    --ink-dim: #8b8f96;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: radial-gradient(1200px 700px at 50% 0%, var(--wall-2), var(--wall) 70%);
+    color: var(--ink);
+    font-family: var(--mono);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Main layout: strips left, controller right ── */
+  #main {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(16px, 4vw, 56px);
+    flex-wrap: wrap;
+    padding: 22px 12px 4px;
+    width: 100%;
+  }
+  #stage { display: flex; flex-direction: column; align-items: center; }
+  canvas { display: block; }
+
+  /* ── Controller pod ── */
+  #controller {
+    background: linear-gradient(160deg, #d4d6d1, var(--pod) 45%, #b4b6b1);
+    border-radius: 18px;
+    padding: 16px 18px 20px;
+    box-shadow:
+      0 2px 0 #e8eae5 inset,
+      0 -3px 0 var(--pod-dark) inset,
+      0 14px 34px rgba(0,0,0,0.55);
+    width: min(360px, 94vw);
+  }
+  #lcd-frame {
+    background: #26282b;
+    border-radius: 8px;
+    padding: 10px 12px;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.25), inset 0 2px 6px rgba(0,0,0,0.8);
+  }
+  #lcd {
+    background: var(--lcd-bg);
+    color: var(--lcd-text);
+    font-family: var(--mono);
+    font-size: clamp(11px, 2.6vw, 14px);
+    line-height: 1.55;
+    letter-spacing: 0.14em;
+    white-space: pre;
+    padding: 8px 10px;
+    border-radius: 3px;
+    text-align: center;
+    text-shadow: 0 0 2px rgba(27,39,5,0.35);
+    box-shadow: inset 0 0 14px rgba(60,80,0,0.35), inset 0 0 3px rgba(0,0,0,0.4);
+    min-height: calc(4 * 1.55em + 16px);
+  }
+  #buttons {
+    display: flex;
+    justify-content: space-around;
+    align-items: flex-end;
+    margin-top: 18px;
+    gap: 8px;
+  }
+  .btn-pod { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+  .arcade-btn {
+    width: clamp(62px, 17vw, 84px);
+    height: clamp(62px, 17vw, 84px);
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    position: relative;
+    background: #111;
+    box-shadow: 0 6px 0 #050505, 0 10px 16px rgba(0,0,0,0.5);
+    transition: transform 0.05s, box-shadow 0.05s;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .arcade-btn::after {
+    content: "";
+    position: absolute;
+    inset: 7%;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle at 32% 26%, rgba(255,255,255,0.85), rgba(255,255,255,0.12) 32%, transparent 48%),
+      var(--btn-col);
+    box-shadow: inset 0 -8px 14px rgba(0,0,0,0.45), inset 0 4px 8px rgba(255,255,255,0.25);
+  }
+  .arcade-btn.pressed, .arcade-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #050505, 0 5px 8px rgba(0,0,0,0.5); }
+  .arcade-btn.charged::after { animation: chargeBlink 0.5s infinite alternate; }
+  @keyframes chargeBlink { from { filter: brightness(1); } to { filter: brightness(1.9) saturate(1.3); } }
+  #btn-blue  { --btn-col: radial-gradient(circle at 50% 60%, #4a6cff, #0a1ecf 70%); }
+  #btn-red   { --btn-col: radial-gradient(circle at 50% 60%, #ff5a4a, #c50f00 70%); }
+  #btn-green { --btn-col: radial-gradient(circle at 50% 60%, #4aff6c, #0aa62e 70%); }
+  .btn-label { font-size: 11px; color: #3c3e3a; letter-spacing: 0.08em; font-weight: 700; }
+
+  /* ── Footer controls ── */
+  #footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px 22px;
+    flex-wrap: wrap;
+    padding: 12px 16px 18px;
+    font-size: 12px;
+    color: var(--ink-dim);
+  }
+  #footer .ctl { display: flex; align-items: center; gap: 8px; }
+  .chip {
+    background: transparent;
+    border: 1px solid #3a3e45;
+    color: var(--ink-dim);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .chip.on { border-color: #7a8290; color: var(--ink); background: #23262c; }
+  #aqi-status { font-size: 12px; }
+  #aqi-status.live { color: #6fd08a; }
+  kbd {
+    border: 1px solid #3a3e45; border-bottom-width: 2px; border-radius: 4px;
+    padding: 0 5px; font-family: var(--mono); font-size: 11px; color: var(--ink);
+  }
+  a { color: var(--ink-dim); }
+  #credit {
+    text-align: center;
+    font-size: 11px;
+    color: #5a5e66;
+    padding: 2px 16px 22px;
+    max-width: 480px;
+  }
+  #credit a { color: #767b84; text-decoration: underline; }
+  @media (max-width: 760px) {
+    #main { gap: 14px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="main">
+  <div id="stage"><canvas id="cv"></canvas></div>
+
+  <div id="controller">
+    <div id="lcd-frame"><div id="lcd"></div></div>
+    <div id="buttons">
+      <div class="btn-pod">
+        <button class="arcade-btn" id="btn-blue" aria-label="Blue button — PM2.5"></button>
+        <span class="btn-label">PM2.5</span>
+      </div>
+      <div class="btn-pod">
+        <button class="arcade-btn" id="btn-red" aria-label="Red button — NO2"></button>
+        <span class="btn-label">NO₂</span>
+      </div>
+      <div class="btn-pod">
+        <button class="arcade-btn" id="btn-green" aria-label="Green button — O3"></button>
+        <span class="btn-label">O₃</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="footer">
+  <span class="ctl">Keys: <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> · tap = fire · hold 2s = cannon</span>
+  <span class="ctl" id="lang-ctl">
+    <button class="chip on" data-lang="en">EN</button>
+    <button class="chip" data-lang="es">ES</button>
+    <button class="chip" data-lang="ca">CA</button>
+  </span>
+  <button class="chip" id="snd-toggle">🔊 Sound: on</button>
+  <span id="aqi-status">AQI: fallback values</span>
+  <span><a href="https://github.com/donaldbell/Air-Defender" target="_blank" rel="noopener">source / hardware build</a></span>
+</div>
+<div id="credit">
+  Air Defender is a game created by <a href="https://github.com/donaldbell" target="_blank" rel="noopener">Donald Bell</a>.
+  This page provides an online simulation of the original hardware design.
+</div>
+
+<script>
+"use strict";
+/* ═══════════════════════════════════════════════════════════════════════════
+   AIR DEFENDER — browser simulation
+   A single-file port of the physical two-board arcade game.
+   Physics constants, animation logic, LCD text, and melodies are taken
+   directly from the firmware (console_unit.cpp / controller_unit.cpp /
+   lcd_display.cpp / strings.h / audio_system.cpp).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── game_config.h constants ─────────────────────────────────────────────── */
+const N_LED = 100, N_STRIPS = 3;
+const GRAVITY = -0.008;                 // shot acceleration per 60fps frame
+const SHOT_V0 = 2.0;
+const CANNON_CHARGE_TIME = 2000;        // ms hold for cannon
+const CANNON_COOLDOWN = 5000;           // ms between cannons per strip
+const FIRE_COOLDOWN_MS = 100;
+const WHO = [5, 5, 30];                 // WHO 2021 baselines: PM2.5, NO2, O3
+const ENEMY_ADV_PXS = 0.55;             // enemy creep px/sec (tune to taste)
+const RAINBOW_WIPE_MS = 1000;
+const BLACKOUT_DELAY = 10000, RESET_DELAY = 12000;
+const HERO_DEATH_MS = 6000;
+const ENCROACH_PX = 15, ENCROACH_INTERVAL = 4000;
+const COMET_START_DELAY = 5000, COMET_COOLDOWN = 5000, COMET_SPEED_PXS = 6.0, COMET_HEALTH = 3;
+const COMET_CHANCE_PERMIL = 6;          // per frame check, as in firmware
+const SLIDE_DURATION = 5000;            // intro slides auto-advance
+const WHO_ANIM_MS = 400, WHO_FLASH_MS = 400;
+const SLIDE0_BLINKS = 3, SLIDE0_HALF = 200;
+const ATTRACT_DEMO_AFTER = 30000;       // ms of aurora before self-play demo
+const CITY_IDLE_TO_ATTRACT = 45000;
+// Fireworks (firmware "realistic firework" model)
+const FW_GRAVITY = -0.003, FW_VMIN = 0.65, FW_VMAX = 0.85, FW_MAXH = 90;
+const FW_BFADE = 0.990, SPARK_FADE = 0.985, GRAV_WEAK = 0.992;
+const COL_HI = 120, COL_LO = 50, FIXED_TIMESTEP = 4;
+
+/* ── City roster (fallback values from firmware; live WAQI overrides) ────── */
+const CITIES = [
+  { name:"Sydney",      slug:"sydney",      pm25:6,  no2:8,  o3:30, live:false },
+  { name:"London",      slug:"london",      pm25:10, no2:25, o3:40, live:false },
+  { name:"Barcelona",   slug:"barcelona",   pm25:12, no2:20, o3:45, live:false },
+  { name:"New York",    slug:"new-york",    pm25:12, no2:22, o3:50, live:false },
+  { name:"Mexico City", slug:"mexico-city", pm25:20, no2:40, o3:55, live:false },
+  { name:"Shanghai",    slug:"shanghai",    pm25:30, no2:35, o3:60, live:false },
+  { name:"Mumbai",      slug:"mumbai",      pm25:45, no2:30, o3:50, live:false },
+  { name:"Delhi",       slug:"delhi",       pm25:90, no2:50, o3:55, live:false },
+];
+// Snapshot of the hand-tuned annual-average fallbacks above, taken before live
+// data can overwrite CITIES — used as a stabilizing anchor so one noisy or
+// unusually calm live reading doesn't swing a city's whole character.
+const FALLBACK_ANCHOR = CITIES.map(c => ({ pm25: c.pm25, no2: c.no2, o3: c.o3 }));
+const WAQI_TOKEN = "c96c0076ad7616b27dcd240b92f25f40703abe28";
+
+/* ── strings.h — EN / ES / CA (CGRAM accent codes rendered as Unicode) ───── */
+const STR = {
+en: {
+  pm25s0: ["PM2.5: Fine Dust","Particles <2.5um","Bad for lungs","Enters bloodstream"],
+  no2s0:  ["Nitrogen Dioxide","From burning fuels","Worsens asthma","Irritates airways"],
+  o3s0:   ["Ozone: Ground Level","Toxic smog made","when sunlight","heats exhaust"],
+  whoR0:"World Health Org.", whoR1:"recommends safe",
+  whoR2:["PM2.5 level:","NO2 level:","Ozone level:"],
+  o3Name:"Ozone",
+  gateNext:["Press button for","next pollutant"], gateLast:["Press button","to start battle!"],
+  waiting:["Loading next","pollutant data..."],
+  countdown:"BATTLE IN",
+  defeatTitle:"    SMOG WINS!    ",
+  scoreO3:"OZONE:", today:"Today: ",
+  scoreHeader:"   Now    |  Goal   ",
+  victory:["Congratulations!","Air Defender!"], victoryCitySfx:" is clean!", victoryR3:"Choose next city >",
+  defeatCitySfx:" fell!", defeatR2:"Choose another city", defeatR3:"or try again.",
+  attract:["* AIR DEFENDER *","Clean the Air!","PRESS ANY BUTTON"],
+},
+es: {
+  pm25s0: ["PM2.5: Polvo Fino","Partículas <2.5um","Dañino a pulmones","Entra al torrente"],
+  no2s0:  ["Dióxido Nitrógeno","De combustibles","Empeora el asma","Irrita las vías"],
+  o3s0:   ["Ozono: Nivel Suelo","Smog tóxico formado","cuando el sol","calienta el escape"],
+  whoR0:"Org. Mundial Salud", whoR1:"recomienda nivel",
+  whoR2:["PM2.5 seguro:","NO2 seguro:","Ozono seguro:"],
+  o3Name:"Ozono",
+  gateNext:["Presiona botón","para siguiente"], gateLast:["Presiona botón","para batallar!"],
+  waiting:["Cargando siguiente","contaminante..."],
+  countdown:"BATALLA EN",
+  defeatTitle:"    SMOG GANA!    ",
+  scoreO3:"OZONO:", today:"Hoy: ",
+  scoreHeader:"  Ahora   |  Meta   ",
+  victory:["Felicitaciones!","Defensor del Aire!"], victoryCitySfx:" está limpia!", victoryR3:"Elige prox. ciudad>",
+  defeatCitySfx:" ha caido!", defeatR2:"Elige otra ciudad", defeatR3:"o intentalo.",
+  attract:["DEFENSOR DEL AIRE","Limpia el Aire!","PRESIONA UN BOTÓN"],
+},
+ca: {
+  pm25s0: ["PM2.5: Pols Fi","Partícules <2.5um","Dolent pels pulmons","Passa a la sang"],
+  no2s0:  ["Diòxid de Nitrogen","De combustibles","Empitjora l'asma","Irrita les vies"],
+  o3s0:   ["Ozó: Nivell Terra","Smog tòxic creat","quan el sol","escalfa l'escapament"],
+  whoR0:"Org. Mundial Salut", whoR1:"recomana nivell",
+  whoR2:["PM2.5 segur:","NO2 segur:","Ozó segur:"],
+  o3Name:"Ozó",
+  gateNext:["Prem el botó","per al següent"], gateLast:["Prem el botó","per batallar!"],
+  waiting:["Carregant següent","contaminant..."],
+  countdown:"BATALLA EN",
+  defeatTitle:"   SMOG GUANYA!   ",
+  scoreO3:"  OZÓ:", today:"Avui: ",
+  scoreHeader:"    Ara   |  Meta   ",
+  victory:["Felicitacions!","Defensor de l'Aire!"], victoryCitySfx:" és neta!", victoryR3:"Tria seg. ciutat >",
+  defeatCitySfx:" ha caigut!", defeatR2:"Tria altra ciutat", defeatR3:"o intenta-ho.",
+  attract:["ESCULL CIUTAT I","SALVA-LA","PREM QUALSEVOL BOTÓ"],
+}};
+let lang = "en";
+const S = () => STR[lang];
+
+/* ── audio_system.cpp — melody strings, verbatim ─────────────────────────── */
+const MEL = {
+  shot:      "784,30;1047,30;1319,30;784,20",
+  hit:       "2093,30",
+  destroyed: "1500,20;1200,20;900,20;700,20;500,20;300,20",
+  cannon:    "130,80;110,80;90,100;70,100;50,120",
+  levelComplete: "392,120;523,120;659,120;784,120;1047,120;1319,120;1568,120;1319,120;0,40;415,120;523,120;622,120;830,120;1047,120;1319,120;1661,120;1319,120;0,40;466,120;587,120;698,120;932,120;1175,120;1397,120;1865,120;1865,120;1865,120;2093,180;0,200;523,100;659,100;784,100;1047,200;0,100;1319,80;1568,80;2093,300;2349,200;0,300",
+  citySelect:"523,80;659,60;784,60;1047,120;1319,150",
+  encroach:  "110,200;0,100;110,200;0,100;98,250",
+  heroDeath: "440,120;330,120;247,150;185,200;147,300",
+  gameStart: "392,75;0,45;392,75;0,45;330,105;392,105;440,105;392,210;0,60;440,105;392,105;330,105;294,210;0,60;262,75;294,75;330,75;392,75;440,75;392,150;330,150;392,450;330,120;392,120;440,240",
+  comet:     "1568,20;1319,20;1047,20;784,20;523,20",
+};
+let audioOn = true, actx = null, mainMelodyGain = null;
+function ac() { if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === "suspended") actx.resume(); return actx; }
+function playTone(freq, durMs, when, dest) {
+  if (!audioOn || freq <= 0) return;
+  const c = ac(), t = when ?? c.currentTime;
+  const o = c.createOscillator(), g = c.createGain();
+  o.type = "square"; o.frequency.value = freq;
+  g.gain.setValueAtTime(0.11, t);
+  g.gain.setTargetAtTime(0.0001, t + durMs/1000 - 0.01, 0.005);
+  o.connect(g).connect(dest || c.destination);
+  o.start(t); o.stop(t + durMs/1000 + 0.02);
+}
+function playMelody(str, main) {
+  if (!audioOn) return;
+  const c = ac();
+  let dest = c.destination;
+  if (main) {                      // main channel: new melody replaces current
+    if (mainMelodyGain) { try { mainMelodyGain.gain.setValueAtTime(0, c.currentTime); mainMelodyGain.disconnect(); } catch(e){} }
+    mainMelodyGain = c.createGain(); mainMelodyGain.gain.value = 1; mainMelodyGain.connect(c.destination);
+    dest = mainMelodyGain;
+  }
+  let t = c.currentTime;
+  for (const part of str.split(";")) {
+    const [f, d] = part.split(",").map(Number);
+    if (f > 0) playTone(f, d, t, dest);
+    t += d / 1000;
+  }
+}
+
+/* ── LCD (20x4 HD44780 emulation) ────────────────────────────────────────── */
+const LCD_COLS = 20;
+const lcdEl = document.getElementById("lcd");
+const center = s => { s = String(s).slice(0, LCD_COLS); const pad = LCD_COLS - s.length, l = Math.floor(pad/2);
+                      return " ".repeat(l) + s + " ".repeat(pad - l); };
+const padLine = s => { s = String(s).slice(0, LCD_COLS); return s + " ".repeat(LCD_COLS - s.length); };
+function lcdSet(r0, r1, r2, r3) { lcdEl.textContent = [r0,r1,r2,r3].map(padLine).join("\n"); }
+
+/* ── colors: getColor() port + FastLED helpers ───────────────────────────── */
+function getColor(code) {
+  switch (code) {
+    case 1: return [0,0,255]; case 2: return [255,0,0]; case 3: return [0,255,0];
+    case 4: return [255,255,255]; case 5: return [255,255,0];
+    case 6: return [255,0,255]; case 7: return [0,255,255];
+    default: return [128,128,128];
+  }
+}
+function hsv255(h, s, v) {           // FastLED-style CHSV (0-255 each) → [r,g,b]
+  const hh = (h % 256) / 256 * 6, i = Math.floor(hh), f = hh - i;
+  const p = v * (1 - s/255), q = v * (1 - s/255*f), t = v * (1 - s/255*(1-f));
+  const m = [[v,t,p],[q,v,p],[p,v,t],[p,q,v],[t,p,v],[v,p,q]][i % 6];
+  return [m[0]|0, m[1]|0, m[2]|0];
+}
+function heatColor(temp) {           // FastLED HeatColor port
+  const t192 = Math.round(temp / 255 * 191);
+  const ramp = (t192 & 0x3F) << 2;
+  if (t192 & 0x80) return [255, 255, ramp];
+  if (t192 & 0x40) return [255, ramp, 0];
+  return [ramp, 0, 0];
+}
+const scale8 = (c, s) => [c[0]*s/255|0, c[1]*s/255|0, c[2]*s/255|0];
+const addC = (a, b) => [Math.min(255,a[0]+b[0]), Math.min(255,a[1]+b[1]), Math.min(255,a[2]+b[2])];
+const rnd = (a, b) => a + Math.random() * (b - a);
+const rndi = (a, b) => Math.floor(rnd(a, b));       // [a, b)
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+
+/* ── game state ──────────────────────────────────────────────────────────── */
+// Console states mirror EnvironmentalState in game_config.h
+const ST = { ATTRACT:0, CITY_SELECT:1, WAVE:2, FALLING:3, WAITING:4, GAME:5 };
+let state = ST.ATTRACT, stateStart = now();
+let inDemo = false;                    // attract self-play demo
+let cityIdx = 0, confirmedCity = null; // confirmedCity = {name, pm25, no2, o3}
+let lastInput = now();
+
+// Controller sub-state
+let inSlides = false, slideIdx = 0, slideStart = 0, slideUnlock = 0;
+let inCountdown = false, countdownVal = 3, countdownStart = 0;
+let firingEnabled = false, gameReady = false, waitingScreen = false;
+
+// Per-strip world
+let whoBase = [0,0,0], whoAnimPx = [0,0,0], whoAnimating = false, whoAnimStripI = 0, whoAnimStart = 0;
+let whoFlashing = [false,false,false], whoFlashStart = [0,0,0];
+let stripPhase = [-1,-1,-1];           // -1 hidden, 0 white blink, 1 WHO fill, 2 enemies
+let blinkActive = [false,false,false], blinkStart = [0,0,0];
+let targetHeights = [0,0,0];
+let enemies = [[],[],[]], falling = [[],[],[]];
+let shots = [], sparks = [], fireworks = [], wipes = [];
+let comets = [null,null,null], lastCometLaunch = [0,0,0];
+let heroPos = [99,99,99], recoil = [0,0,0];
+let stripDone = [false,false,false], delayedFw = [0,0,0];
+let heroDead = false, heroDeathAt = 0, lastEncroach = 0;
+let victory = false, victoryAt = 0, finalFwDone = false, blackedOut = false;
+let lastFire = [0,0,0], lastCannon = [-99999,-99999,-99999];
+// Button/charging state (controller_unit.cpp behavior)
+let btnDown = [false,false,false], pressAt = [0,0,0], charging = [false,false,false], chargeAt = [0,0,0], chargeSoundAt = [0,0,0];
+// Demo autofire
+let demoLastFire = [0,0,0], demoShotType = [0,0,0];
+const DEMO_INTERVAL = [1100, 1400, 900];
+
+function now() { return performance.now(); }
+
+/* ── EPA AQI sub-index → concentration conversion ────────────────────────────
+   WAQI's iaqi.pm25.v / iaqi.no2.v / iaqi.o3.v fields are each pollutant's own
+   EPA AQI sub-index (0-500 scale), not raw µg/m³ or ppb — a common point of
+   confusion. Each pollutant has its own nonlinear breakpoint table, so an
+   AQI number from one pollutant isn't comparable to another, and neither is
+   directly usable as a µg/m³ or ppb concentration. We invert EPA's own
+   linear-interpolation formula per breakpoint bracket to recover the true
+   concentration, so it lines up with the WHO µg/m³ / ppb baselines used
+   throughout the rest of the game.
+   Breakpoints: PM2.5 uses EPA's 2024-revised table (µg/m³, 24-hr);
+   NO2 (ppb, 1-hr) and O3 (ppb, 8-hr) use the standing EPA tables. */
+const BREAKPOINTS = {
+  pm25: [[0,50,0.0,9.0],[51,100,9.1,35.4],[101,150,35.5,55.4],[151,200,55.5,125.4],[201,300,125.5,225.4],[301,500,225.5,325.4]],
+  no2:  [[0,50,0,53],[51,100,54,100],[101,150,101,360],[151,200,361,649],[201,300,650,1249],[301,500,1250,2049]],
+  o3:   [[0,50,0,54],[51,100,55,70],[101,150,71,85],[151,200,86,105],[201,300,106,200]],
+};
+function aqiSubIndexToConcentration(pollutant, aqi) {
+  const table = BREAKPOINTS[pollutant];
+  for (const [aLo, aHi, cLo, cHi] of table) {
+    if (aqi >= aLo && aqi <= aHi) return cLo + (cHi - cLo) * (aqi - aLo) / (aHi - aLo);
+  }
+  // Above the table's top bracket (very extreme readings) — extrapolate from the last segment.
+  const [aLo, aHi, cLo, cHi] = table[table.length - 1];
+  return cLo + (cHi - cLo) * (aqi - aLo) / (aHi - aLo);
+}
+
+/* Picks the forecast.daily entry closest to "today" and returns its average
+   AQI sub-index — WAQI publishes a rolling daily avg/min/max per pollutant
+   (same mechanism as their own trend charts), which smooths out the ozone
+   titration / time-of-day swings a single instantaneous reading can't. */
+function pickDailyAvg(dailyArr) {
+  if (!Array.isArray(dailyArr) || dailyArr.length === 0) return null;
+  const today = new Date().toISOString().slice(0, 10);
+  let best = null, bestDiff = Infinity;
+  for (const entry of dailyArr) {
+    if (!entry || !isFinite(entry.avg)) continue;
+    const diff = Math.abs(new Date(entry.day) - new Date(today));
+    if (diff < bestDiff) { bestDiff = diff; best = entry; }
+  }
+  return best ? best.avg : null;
+}
+
+/* ── WAQI live data ──────────────────────────────────────────────────────── */
+// Live readings are blended with the annual-average anchor (50% live / 50%
+// anchor) rather than used outright. A city's real character is its typical
+// pollution level, not whatever single moment the fetch happened to catch —
+// a genuinely clean 3am reading in a heavily-polluted city (ozone especially
+// swings hard between day and night), or a freak spike in a normally-clean
+// one, would otherwise read to a player as a bug rather than a snapshot of
+// reality. 50/50 keeps outliers from swinging a city's difficulty away from
+// what it's actually known for, while still letting live conditions and
+// real smog events show through on the high side.
+const LIVE_WEIGHT = 0.5, ANCHOR_WEIGHT = 0.5;
+function blendWithAnchor(liveValue, anchorValue) {
+  return Math.max(1, Math.round(liveValue * LIVE_WEIGHT + anchorValue * ANCHOR_WEIGHT));
+}
+async function fetchAQI() {
+  const el = document.getElementById("aqi-status");
+  const results = await Promise.allSettled(CITIES.map(c =>
+    fetch(`https://api.waqi.info/feed/${c.slug}/?token=${WAQI_TOKEN}`).then(r => r.json())
+  ));
+  let liveCount = 0, avgCount = 0;
+  results.forEach((res, i) => {
+    if (res.status === "fulfilled" && res.value && res.value.status === "ok") {
+      const iaqi = res.value.data.iaqi || {};
+      const daily = (res.value.data.forecast || {}).daily || {};
+      const anchor = FALLBACK_ANCHOR[i];
+      let any = false, usedAvg = false;
+      // PM2.5 and O3: prefer WAQI's daily average over instantaneous reading.
+      const pm25Avg = pickDailyAvg(daily.pm25), o3Avg = pickDailyAvg(daily.o3);
+      if (pm25Avg !== null) { CITIES[i].pm25 = blendWithAnchor(aqiSubIndexToConcentration("pm25", pm25Avg), anchor.pm25); any = true; usedAvg = true; }
+      else if (iaqi.pm25 && isFinite(iaqi.pm25.v)) { CITIES[i].pm25 = blendWithAnchor(aqiSubIndexToConcentration("pm25", iaqi.pm25.v), anchor.pm25); any = true; }
+      if (o3Avg !== null) { CITIES[i].o3 = blendWithAnchor(aqiSubIndexToConcentration("o3", o3Avg), anchor.o3); any = true; usedAvg = true; }
+      else if (iaqi.o3 && isFinite(iaqi.o3.v)) { CITIES[i].o3 = blendWithAnchor(aqiSubIndexToConcentration("o3", iaqi.o3.v), anchor.o3); any = true; }
+      // NO2: WAQI doesn't publish a daily forecast series for it — instantaneous only, still anchored.
+      if (iaqi.no2 && isFinite(iaqi.no2.v)) { CITIES[i].no2 = blendWithAnchor(aqiSubIndexToConcentration("no2", iaqi.no2.v), anchor.no2); any = true; }
+      if (any) { CITIES[i].live = true; liveCount++; if (usedAvg) avgCount++; }
+    }
+  });
+  if (liveCount > 0) {
+    el.textContent = `AQI: live+smoothed · ${liveCount}/${CITIES.length} cities (${avgCount} daily-avg) · waqi.info`;
+    el.classList.add("live");
+    if (state === ST.CITY_SELECT) lcdCitySelect();
+  }
+}
+fetchAQI();
+
+/* ── LCD screens (lcd_display.cpp ports) ─────────────────────────────────── */
+let lcdMode = "attract";               // what the 250ms ticker should keep refreshed
+function lcdAttract() {
+  lcdMode = "attract";
+  const blinkOn = Math.floor(now() / 800) % 2 === 0;
+  lcdSet(center(S().attract[0]), center(S().attract[1]),
+         center("- - - - - - - - -"), blinkOn ? center(S().attract[2]) : "");
+}
+function lcdCitySelect() {
+  lcdMode = "city";
+  const c = CITIES[cityIdx];
+  const v = `${String(c.pm25).padStart(5)} | ${String(c.no2).padStart(4)} | ${String(c.o3).padStart(5)}`;
+  lcdSet(center(c.name), "PM2.5 |  NO2 | OZONE", v,
+         center(`<  ${cityIdx+1}/${CITIES.length}  [OK]  >`));
+}
+function lcdStripIntro(strip, slideNum) {
+  lcdMode = "static";
+  const units = ["ug/m3","ppb","ppb"];
+  const cityVal = [confirmedCity.pm25, confirmedCity.no2, confirmedCity.o3][strip];
+  if (slideNum === 0) {
+    const rows = [S().pm25s0, S().no2s0, S().o3s0][strip];
+    lcdSet(center(rows[0]), center(rows[1]), center(rows[2]), center(rows[3]));
+  } else if (slideNum === 1) {
+    const val = ["5 ug/m3","5 ppb","30 ppb"][strip];
+    lcdSet(center(S().whoR0), center(S().whoR1), center(S().whoR2[strip]), center(val));
+  } else {
+    const names = ["PM2.5", "NO2", S().o3Name];
+    const gate = strip === 2 ? S().gateLast : S().gateNext;
+    lcdSet(center(`${confirmedCity.name} ${names[strip]}`),
+           center(`${S().today}${cityVal} ${units[strip]}`),
+           center(gate[0]), center(gate[1]));
+  }
+}
+function lcdWaiting()   { lcdMode = "static"; lcdSet("", center(S().waiting[0]), center(S().waiting[1]), ""); }
+function lcdCountdown(n){ lcdMode = "static"; lcdSet("", center(S().countdown), center(String(n)), ""); }
+function lcdScore() {
+  lcdMode = "score";
+  const rem = enemies.map(a => a.length);
+  const row = (label, cur, who) =>
+    label.padStart(6) + " " + String(cur).padStart(3) + "|" + String(who).padStart(5) + "    ";
+  lcdSet(S().scoreHeader,
+         row("PM2.5:", WHO[0]+rem[0], WHO[0]),
+         row("NO2:",   WHO[1]+rem[1], WHO[1]),
+         row(S().scoreO3, WHO[2]+rem[2], WHO[2]));
+}
+function lcdVictory() {
+  lcdMode = "static";
+  let line = confirmedCity.name + S().victoryCitySfx;
+  if (line.length > LCD_COLS) line = confirmedCity.name.slice(0, LCD_COLS - S().victoryCitySfx.length) + S().victoryCitySfx;
+  lcdSet(center(S().victory[0]), center(S().victory[1]), center(line), center(S().victoryR3));
+}
+function lcdDefeat() {
+  lcdMode = "static";
+  let line = confirmedCity.name + S().defeatCitySfx;
+  if (line.length > LCD_COLS) line = confirmedCity.name.slice(0, LCD_COLS - S().defeatCitySfx.length) + S().defeatCitySfx;
+  lcdSet("☠" + S().defeatTitle.slice(0,18) + "☠", center(line), center(S().defeatR2), center(S().defeatR3));
+}
+setInterval(() => {                    // blink / periodic refresh
+  if (lcdMode === "attract") lcdAttract();
+}, 250);
+
+/* ── state transitions ───────────────────────────────────────────────────── */
+function enterAttract() {
+  state = ST.ATTRACT; stateStart = now(); inDemo = false;
+  clearWorld(); lcdAttract();
+}
+function enterCitySelect() {
+  state = ST.CITY_SELECT; stateStart = now(); inDemo = false; lastInput = now();
+  clearWorld(); lcdCitySelect();
+}
+function confirmCity() {
+  const c = CITIES[cityIdx];
+  confirmedCity = { name: c.name, pm25: c.pm25, no2: c.no2, o3: c.o3 };
+  playMelody(MEL.citySelect, true);
+  clearWorld();
+  // generateLevelFromAQI(): 1 LED = 1 unit; enemies = total − WHO baseline (min 1)
+  const totals = [clamp(c.pm25,1,N_LED-1), clamp(c.no2,1,N_LED-1), clamp(c.o3,1,N_LED-1)];
+  whoBase = WHO.slice();
+  targetHeights = totals.map((t, i) => Math.max(1, t - whoBase[i]));
+  // Console: 2s wave intro; controller: first slide immediately
+  state = ST.WAVE; stateStart = now(); waveInit();
+  inSlides = true; slideIdx = 0; slideStart = now(); slideUnlock = now() + 400;
+  gameReady = false; firingEnabled = false; waitingScreen = false;
+  lcdStripIntro(0, 0);
+  onSlideAdvance(0, 0);
+}
+function clearWorld() {
+  shots = []; sparks = []; fireworks = []; wipes = [];
+  enemies = [[],[],[]]; falling = [[],[],[]];
+  comets = [null,null,null]; lastCometLaunch = [0,0,0];
+  stripPhase = [-1,-1,-1]; blinkActive = [false,false,false];
+  whoAnimPx = [0,0,0]; whoAnimating = false;
+  whoFlashing = [false,false,false];
+  stripDone = [false,false,false]; delayedFw = [0,0,0];
+  heroPos = [99,99,99]; recoil = [0,0,0];
+  heroDead = false; victory = false; finalFwDone = false; blackedOut = false;
+  charging = [false,false,false];
+  inSlides = false; inCountdown = false; firingEnabled = false; waitingScreen = false;
+}
+
+/* Console reaction to slide advances (CMD_SLIDE_ADVANCE handling) */
+function onSlideAdvance(strip, slideInStrip) {
+  if (strip >= N_STRIPS) return;
+  if (slideInStrip === 0) {
+    stripPhase[strip] = 0;
+    if (state !== ST.WAVE) { blinkActive[strip] = true; blinkStart[strip] = now(); }
+  } else if (slideInStrip === 1) {
+    stripPhase[strip] = 1;
+    whoFlashing[strip] = true; whoFlashStart[strip] = now();
+  } else {
+    stripPhase[strip] = 2;
+    initFallingEnemies(strip);
+  }
+}
+function initFallingEnemies(strip) {
+  falling[strip] = []; enemies[strip] = [];
+  const t = now(), spawnH = N_LED + 30;
+  for (let i = 0; i < targetHeights[strip]; i++) {
+    const target = whoBase[strip] + i;
+    falling[strip].push({
+      spawnDelay: t + i * 150, position: spawnH + target * 3, velocity: 0,
+      targetPos: target, color: strip + 1, active: false, settled: false,
+    });
+  }
+}
+
+function startCountdownOrWait() {
+  inSlides = false;
+  if (gameReady) {
+    inCountdown = true; countdownVal = 3; countdownStart = now();
+    lcdCountdown(3); playTone(440, 150);
+  } else { waitingScreen = true; lcdWaiting(); }
+}
+
+function beginBattle() {
+  inCountdown = false; firingEnabled = true;
+  state = ST.GAME; stateStart = now();
+  enemies.forEach(arr => arr.forEach(e => { e.phaseOffset = rnd(0, 6.28); }));
+  playMelody(MEL.gameStart, true);
+  lcdScore();
+}
+
+function triggerVictory() {
+  victory = true; victoryAt = now(); finalFwDone = false; blackedOut = false;
+  if (!inDemo) { playMelody(MEL.levelComplete, true); lcdVictory(); }
+}
+function triggerDefeat() {
+  heroDead = true; heroDeathAt = now();
+  playMelody(MEL.heroDeath, true);
+  lcdDefeat();
+}
+
+/* ── firing (createPlayerShot / createCannonShot ports) ──────────────────── */
+function fireShot(strip) {
+  if (state !== ST.GAME || stripDone[strip] || victory || heroDead) return;
+  const t = now();
+  if (t - lastFire[strip] < FIRE_COOLDOWN_MS) return;
+  lastFire[strip] = t;
+  shots.push({ pos: heroPos[strip], vel: -SHOT_V0, strip, color: strip+1, cannon: false, size: 1, dmg: 1 });
+  recoil[strip] = -2.0;
+  if (!inDemo) playMelody(MEL.shot);
+}
+function fireCannon(strip) {
+  if (state !== ST.GAME || stripDone[strip] || victory || heroDead) return;
+  const t = now();
+  if (t - lastCannon[strip] < CANNON_COOLDOWN) return;
+  lastCannon[strip] = t;
+  for (let n = 0; n < 5; n++)
+    shots.push({ pos: heroPos[strip] - n*2, vel: -SHOT_V0 - n*0.5, strip, color: strip+1, cannon: true, size: 3, dmg: 4 });
+  recoil[strip] = -6.0;
+  if (!inDemo) playMelody(MEL.cannon, true);
+}
+
+/* ── sparks (createImpactSparks / createDramaticExplosion / updateSparks) ── */
+function impactSparks(pos, color, strip, success) {
+  const n = success ? 6 : 12, dir = success ? 1 : -1;
+  const hFrac = pos / N_LED, mult = 0.5 + hFrac;
+  for (let i = 0; i < n && sparks.length < 100; i++) {
+    let col = color, br = 255;
+    if (hFrac > 0.8) col = 4; else if (hFrac <= 0.5) br = 180;
+    sparks.push({ pos: pos + rnd(-2, 3), vel: rnd(0.15, 0.5) * dir * mult, br, color: col, strip });
+  }
+}
+function dramaticExplosion(pos, strip, intensity) {
+  const n = 8 + intensity * 3;
+  for (let i = 0; i < n && sparks.length < 100; i++) {
+    sparks.push({ pos: pos + rnd(-2, 3), vel: rnd(0.6, 1.2) + rnd(-0.15, 0.15),
+                  br: 200 + rndi(0, 56), color: Math.random() < 0.6 ? 5 : 4, strip });
+  }
+}
+function updateSparks(f60) {
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const s = sparks[i];
+    s.vel += -0.03 * f60;
+    s.pos += s.vel * f60;
+    let ground = 0;
+    for (const e of enemies[s.strip]) if (e.position > ground) ground = e.position;
+    if (s.pos <= ground && s.vel < 0) { s.vel *= -0.3; s.pos = ground; }
+    s.br -= 4 * f60;
+    if (s.br <= 4 || s.pos < 0 || s.pos >= N_LED) sparks.splice(i, 1);
+  }
+}
+
+/* ── fireworks (RealisticFirework port) ──────────────────────────────────── */
+function createFirework(strip) {
+  const fw = {
+    flarePos: 0, flareVel: rnd(FW_VMIN, FW_VMAX), brightness: 1, strip,
+    launch: true, exploded: false,
+    trailPos: [0,0,0,0,0], trailVel: [], trailCol: [],
+    exN: 0, exPos: [], exVel: [], exCol: [], dyingGravity: FW_GRAVITY,
+  };
+  for (let i = 0; i < 5; i++) {
+    fw.trailVel[i] = Math.random() * (fw.flareVel / 5);
+    fw.trailCol[i] = clamp(fw.trailVel[i] * 1000, 0, 255);
+  }
+  fireworks.push(fw);
+}
+function updateFireworks(dtMs) {
+  const fm = clamp(dtMs / FIXED_TIMESTEP, 1.5, 12);
+  for (let i = fireworks.length - 1; i >= 0; i--) {
+    const fw = fireworks[i];
+    if (fw.launch) {
+      for (let s = 0; s < 5; s++) {
+        fw.trailPos[s] = clamp(fw.trailPos[s] + fw.trailVel[s] * fm, 0, N_LED);
+        fw.trailVel[s] += FW_GRAVITY * fm;
+        fw.trailCol[s] = clamp(fw.trailCol[s] - 0.8 * fm, 0, 255);
+      }
+      fw.flarePos += fw.flareVel * fm;
+      fw.flareVel += FW_GRAVITY * fm;
+      fw.brightness *= Math.pow(FW_BFADE, fm);
+      if (fw.flarePos >= FW_MAXH) { fw.flarePos = FW_MAXH; fw.flareVel = -0.3; }
+      if (fw.flareVel <= -0.2) {
+        fw.launch = false; fw.exploded = true;
+        fw.exN = clamp(Math.floor(fw.flarePos / 2), 10, 50);
+        for (let s = 0; s < fw.exN; s++) {
+          fw.exPos[s] = fw.flarePos;
+          fw.exVel[s] = rnd(0, 2) - 1;
+          fw.exCol[s] = clamp(Math.abs(fw.exVel[s]) * 500, 0, 255);
+          fw.exVel[s] *= fw.flarePos / N_LED;
+        }
+        fw.exCol[0] = 255;
+      }
+    } else {
+      let burning = false;
+      for (let s = 0; s < fw.exN; s++) {
+        fw.exPos[s] = clamp(fw.exPos[s] + fw.exVel[s] * fm, 0, N_LED);
+        fw.exVel[s] += fw.dyingGravity * fm;
+        fw.exCol[s] = clamp(fw.exCol[s] * Math.pow(SPARK_FADE, fm), 0, 255);
+        if (fw.exCol[s] > COL_LO / 128) burning = true;
+      }
+      fw.dyingGravity *= Math.pow(GRAV_WEAK, fm);
+      if (!burning) fireworks.splice(i, 1);
+    }
+  }
+}
+
+/* ── comets ──────────────────────────────────────────────────────────────── */
+function tryLaunchComets() {
+  const t = now();
+  if (t - stateStart < COMET_START_DELAY) return;
+  for (let s = 0; s < N_STRIPS; s++) {
+    if (stripDone[s] || comets[s] || enemies[s].length === 0) continue;
+    if (t - lastCometLaunch[s] < COMET_COOLDOWN) continue;
+    if (Math.random() * 1000 >= COMET_CHANCE_PERMIL) continue;
+    let top = -1;
+    for (const e of enemies[s]) top = Math.max(top, e.position);
+    if (top < 0) continue;
+    comets[s] = { position: top, health: COMET_HEALTH, sparkUntil: 0 };
+    lastCometLaunch[s] = t;
+    if (!inDemo) playMelody(MEL.comet);
+  }
+}
+function updateComets(dt) {
+  for (let s = 0; s < N_STRIPS; s++) {
+    const c = comets[s];
+    if (!c) continue;
+    c.position = Math.min(N_LED - 1, c.position + COMET_SPEED_PXS * dt);
+    if (Math.random() < 0.4 && sparks.length < 100)
+      sparks.push({ pos: c.position - rnd(1, 4), vel: rnd(0.02, 0.22),
+                    br: 200 + rndi(0, 56), color: Math.random() < 0.7 ? 4 : 5, strip: s });
+  }
+}
+
+/* ── wave intro (SimpleWave port, 15x100 virtual matrix) ─────────────────── */
+const MW = 15, MH = 100, STRIP_COLS = [3, 8, 13];
+let waveH = null, waveV = null, lastRipple = 0;
+function waveInit() {
+  waveH = Array.from({length: MW}, () => new Float32Array(MH));
+  waveV = Array.from({length: MW}, () => new Float32Array(MH));
+  lastRipple = 0;
+}
+function waveUpdate() {
+  const speed = 0.18, damp = 9.0;
+  for (let x = 1; x < MW - 1; x++) for (let y = 1; y < MH - 1; y++) {
+    const acc = (waveH[x-1][y] + waveH[x+1][y] + waveH[x][y-1] + waveH[x][y+1] - 4*waveH[x][y]) * speed;
+    waveV[x][y] = (waveV[x][y] + acc) * (1 - damp/100);
+    waveH[x][y] = clamp(waveH[x][y] + waveV[x][y], -2, 2);
+  }
+}
+
+/* ── main update loop ────────────────────────────────────────────────────── */
+let lastT = now();
+function update() {
+  const t = now();
+  let dtMs = Math.min(t - lastT, 33);
+  lastT = t;
+  const dt = dtMs / 1000, f60 = dtMs / 16.667;
+
+  // Hero recoil spring + charge state
+  for (let s = 0; s < N_STRIPS; s++) {
+    recoil[s] *= Math.pow(0.85, f60);
+    if (btnDown[s] && state === ST.GAME && firingEnabled && !stripDone[s]) {
+      const held = t - pressAt[s];
+      if (held >= 1000 && !charging[s]) { charging[s] = true; chargeAt[s] = t; }
+      // Progressive charge tone: 80→200 Hz, 70→120 ms, every 300 ms (controller port)
+      if (held >= 1000 && held < CANNON_CHARGE_TIME && t - chargeSoundAt[s] > 300 && !inDemo) {
+        const p = Math.min(1, (held - 1000) / 1000);
+        playTone(80 + p * 120 | 0, 70 + p * 50 | 0);
+        chargeSoundAt[s] = t;
+      }
+    }
+    document.getElementById(["btn-blue","btn-red","btn-green"][s])
+      .classList.toggle("charged", charging[s] && (t - chargeAt[s]) >= 1000);
+  }
+
+  switch (state) {
+    case ST.ATTRACT:
+      if (!inDemo && t - stateStart > ATTRACT_DEMO_AFTER) startDemo();
+      break;
+
+    case ST.CITY_SELECT:
+      if (t - lastInput > CITY_IDLE_TO_ATTRACT) enterAttract();
+      break;
+
+    case ST.WAVE: {
+      const el = t - stateStart;
+      if (el < 2000) {
+        if (t - lastRipple > 400) { waveH[rndi(2, MW-2)][rndi(10, MH-10)] += 1.5; lastRipple = t; }
+        waveUpdate();
+      } else {
+        state = ST.FALLING; stateStart = t;
+        for (let s = 0; s < N_STRIPS; s++)
+          if (stripPhase[s] === 0) { blinkActive[s] = true; blinkStart[s] = t; }
+      }
+      break;
+    }
+
+    case ST.FALLING:
+    case ST.WAITING:
+      updateIntroPhases(t, dt);
+      break;
+
+    case ST.GAME:
+      updateGame(t, dt, f60, dtMs);
+      break;
+  }
+
+  // Controller: slide auto-advance (non-gate slides only)
+  if (inSlides && slideIdx % 3 !== 2 && t - slideStart >= SLIDE_DURATION) advanceSlide();
+  // Controller: countdown
+  if (inCountdown) {
+    const n = 3 - Math.floor((t - countdownStart) / 1000);
+    if (n !== countdownVal) {
+      countdownVal = n;
+      if (n >= 1) { lcdCountdown(n); playTone(440 + (3-n)*80, 150); }
+      else beginBattle();
+    }
+  }
+  // Waiting screen resolves when enemies finish loading
+  if (waitingScreen && gameReady) { waitingScreen = false; inCountdown = true; countdownVal = 3; countdownStart = t; lcdCountdown(3); playTone(440, 150); }
+}
+
+function updateIntroPhases(t, dt) {
+  // Phase 1: WHO flash then bottom-up fill
+  for (let s = 0; s < N_STRIPS; s++) {
+    if (whoFlashing[s] && t - whoFlashStart[s] >= WHO_FLASH_MS) {
+      whoFlashing[s] = false; whoAnimating = true; whoAnimStripI = s; whoAnimStart = t; whoAnimPx[s] = 0;
+    }
+  }
+  if (whoAnimating) {
+    const p = Math.min(1, (t - whoAnimStart) / WHO_ANIM_MS);
+    whoAnimPx[whoAnimStripI] = Math.floor(p * whoBase[whoAnimStripI]);
+    if (p >= 1) whoAnimating = false;
+    return;
+  }
+  // Phase 2: enemy fall-in
+  for (let s = 0; s < N_STRIPS; s++) {
+    if (stripPhase[s] < 2) continue;
+    for (let i = falling[s].length - 1; i >= 0; i--) {
+      const e = falling[s][i];
+      if (!e.active && t >= e.spawnDelay) e.active = true;
+      if (!e.active || e.settled) continue;
+      e.velocity = Math.min(8, e.velocity + 1.2 * dt * 60);
+      e.position -= e.velocity * dt * 60;
+      if (e.position <= e.targetPos) {
+        e.position = e.targetPos; e.settled = true;
+        enemies[s].push({ position: e.targetPos, startPosition: e.targetPos, color: e.color,
+                          health: 3, maxHealth: 3, sparkUntil: 0, phaseOffset: rnd(0, 6.28) });
+      }
+    }
+    falling[s] = falling[s].filter(e => !e.settled);
+  }
+  // All settled on last strip → game ready
+  if (stripPhase[2] === 2 && falling[2].length === 0 && !gameReady && enemies[2].length >= targetHeights[2]) {
+    gameReady = true;
+    state = ST.WAITING; stateStart = t;
+  }
+}
+
+function updateGame(t, dt, f60, dtMs) {
+  if (heroDead) {
+    if (t - heroDeathAt >= HERO_DEATH_MS) {
+      heroDead = false;
+      if (inDemo) enterAttract(); else enterCitySelect();
+    }
+    return;
+  }
+
+  if (!victory) {
+    // Enemy advance with wave-pulse surge
+    const ts = t * 0.001, pulse = ENEMY_ADV_PXS * 0.3;
+    for (let s = 0; s < N_STRIPS; s++) {
+      for (const e of enemies[s]) {
+        e.position += (ENEMY_ADV_PXS + pulse * Math.sin(ts * 2 + e.phaseOffset)) * dt;
+        e.position = clamp(e.position, e.startPosition, N_LED - 1);
+      }
+    }
+    updateComets(dt);
+    tryLaunchComets();
+
+    // Demo: auto-fire, silently dismiss enemies that reach the hero
+    if (inDemo) {
+      for (let s = 0; s < N_STRIPS; s++) {
+        enemies[s] = enemies[s].filter(e => e.position < heroPos[s] - 1);
+        if (comets[s] && comets[s].position >= heroPos[s] - 1) comets[s] = null;
+        if (!stripDone[s] && enemies[s].length === 0) completeStrip(s);
+        if (!stripDone[s] && enemies[s].length > 0 && t - demoLastFire[s] >= DEMO_INTERVAL[s]) {
+          if (demoShotType[s] === 0) {
+            shots.push({ pos: heroPos[s], vel: -SHOT_V0, strip: s, color: s+1, cannon: false, size: 1, dmg: 1 });
+            recoil[s] = -2.0;
+          } else {
+            shots.push({ pos: heroPos[s], vel: -SHOT_V0 - 0.5, strip: s, color: s+1, cannon: true, size: 3, dmg: 4 });
+            recoil[s] = -4.0;
+          }
+          demoShotType[s] = 1 - demoShotType[s];
+          demoLastFire[s] = t;
+        }
+      }
+    } else {
+      // Encroach warning
+      if (t - lastEncroach > ENCROACH_INTERVAL) {
+        outer:
+        for (let s = 0; s < N_STRIPS; s++) {
+          if (comets[s] && heroPos[s] - comets[s].position < ENCROACH_PX) { playMelody(MEL.encroach); lastEncroach = t; break; }
+          for (const e of enemies[s])
+            if (heroPos[s] - e.position < ENCROACH_PX) { playMelody(MEL.encroach); lastEncroach = t; break outer; }
+        }
+      }
+      // Hero collision → defeat
+      for (let s = 0; s < N_STRIPS && !heroDead; s++) {
+        if (comets[s] && comets[s].position >= heroPos[s] - 1) { triggerDefeat(); break; }
+        for (const e of enemies[s]) if (e.position >= heroPos[s] - 1) { triggerDefeat(); break; }
+      }
+      if (heroDead) return;
+    }
+  }
+
+  // Shot physics + collisions
+  for (let i = shots.length - 1; i >= 0; i--) {
+    const sh = shots[i];
+    sh.vel += GRAVITY * f60;
+    sh.pos += sh.vel * 60 * dt;
+    if (sh.pos < 0) { impactSparks(0, sh.color, sh.strip, false); shots.splice(i, 1); continue; }
+    const s = sh.strip, range = sh.cannon ? 4 : 3;
+    let removed = false;
+    // Comet first
+    if (comets[s] && Math.abs(sh.pos - comets[s].position) < range) {
+      comets[s].health -= Math.max(1, sh.dmg);
+      comets[s].sparkUntil = now() + 250;
+      impactSparks(sh.pos, 5, s, true);
+      if (!inDemo) playMelody(MEL.hit);
+      if (comets[s].health <= 0) { dramaticExplosion(comets[s].position, s, 1); comets[s] = null; if (!inDemo) playMelody(MEL.destroyed); }
+      shots.splice(i, 1); continue;
+    }
+    for (let e = enemies[s].length - 1; e >= 0; e--) {
+      const en = enemies[s][e];
+      if (Math.abs(sh.pos - en.position) < range) {
+        // Same-color hit (colors always match per-strip in this design)
+        if (sh.color === en.color) {
+          en.health -= sh.dmg;
+          en.sparkUntil = now() + 300;
+          if (en.health <= 0) {
+            let remaining = enemies[0].length + enemies[1].length + enemies[2].length;
+            dramaticExplosion(en.position, s, Math.max(1, 3 - Math.floor(remaining / 10)));
+            enemies[s].splice(e, 1);
+            if (!inDemo) { playMelody(MEL.destroyed); lcdScore(); }
+            if (!stripDone[s] && enemies[s].length === 0) completeStrip(s);
+          } else {
+            impactSparks(sh.pos, sh.color, s, false);
+            if (!inDemo) playMelody(MEL.hit);
+          }
+        } else impactSparks(sh.pos, sh.color, s, false);
+        shots.splice(i, 1); removed = true; break;
+      }
+    }
+    if (removed) continue;
+  }
+
+  updateSparks(f60);
+  updateFireworks(dtMs);
+  for (let s = 0; s < N_STRIPS; s++)
+    if (stripDone[s] && delayedFw[s] > 0 && t >= delayedFw[s]) { createFirework(s); delayedFw[s] = 0; }
+  for (let i = wipes.length - 1; i >= 0; i--) {
+    wipes[i].position += 3 * f60;
+    if (wipes[i].position >= N_LED) wipes.splice(i, 1);
+  }
+
+  // Victory detection + sequence
+  if (!victory && enemies[0].length + enemies[1].length + enemies[2].length === 0
+      && stripPhase[2] === 2) triggerVictory();
+  if (victory) {
+    const el = t - victoryAt;
+    if (!finalFwDone && el >= 1200) { finalFwDone = true; for (let s = 0; s < N_STRIPS; s++) createFirework(s); }
+    if (el >= 4600 && finalFwDone && fireworks.length < 3 && !blackedOut)
+      for (let s = 0; s < N_STRIPS; s++) createFirework(s);
+    if (el >= BLACKOUT_DELAY && !blackedOut) { blackedOut = true; fireworks = []; sparks = []; wipes = []; }
+    if (el >= RESET_DELAY) { if (inDemo) enterAttract(); else enterCitySelect(); }
+  }
+}
+
+function completeStrip(s) {
+  stripDone[s] = true;
+  comets[s] = null;
+  wipes.push({ strip: s, position: 0 });
+  delayedFw[s] = now() + 1000;
+}
+
+function startDemo() {
+  inDemo = true;
+  clearWorld();
+  confirmedCity = { name: "Demo City", pm25: 25, no2: 30, o3: 45 };
+  whoBase = WHO.slice();
+  const totals = [25, 30, 45];
+  targetHeights = totals.map((tv, i) => Math.max(1, tv - whoBase[i]));
+  stripPhase = [2, 2, 2];
+  for (let s = 0; s < N_STRIPS; s++)
+    for (let i = 0; i < targetHeights[s]; i++)
+      enemies[s].push({ position: whoBase[s] + i, startPosition: whoBase[s] + i, color: s+1,
+                        health: 3, maxHealth: 3, sparkUntil: 0, phaseOffset: rnd(0, 6.28) });
+  demoLastFire = [0,0,0]; demoShotType = [0,0,0];
+  state = ST.GAME; stateStart = now(); firingEnabled = false;
+  // LCD keeps the attract screen during the demo
+  lcdAttract();
+}
+
+/* ── input (controller_unit.cpp button logic) ────────────────────────────── */
+function press(s) {
+  ac();                              // unlock audio on first gesture
+  lastInput = now();
+  if (btnDown[s]) return;
+  btnDown[s] = true; pressAt[s] = now(); charging[s] = false;
+  document.getElementById(["btn-blue","btn-red","btn-green"][s]).classList.add("pressed");
+  if (inDemo || state === ST.ATTRACT) { enterCitySelect(); return; }
+  if (state === ST.CITY_SELECT) {
+    if (s === 0) { cityIdx = (cityIdx + CITIES.length - 1) % CITIES.length; playTone(500, 60); lcdCitySelect(); }
+    else if (s === 2) { cityIdx = (cityIdx + 1) % CITIES.length; playTone(500, 60); lcdCitySelect(); }
+    else confirmCity();
+    return;
+  }
+  if (inSlides) {
+    if (now() < slideUnlock) return;
+    playTone(500, 60);
+    advanceSlide();
+    return;
+  }
+}
+function release(s) {
+  if (!btnDown[s]) return;
+  btnDown[s] = false;
+  document.getElementById(["btn-blue","btn-red","btn-green"][s]).classList.remove("pressed", "charged");
+  const held = now() - pressAt[s];
+  charging[s] = false;
+  if (state === ST.GAME && firingEnabled && !inDemo) {
+    if (held >= CANNON_CHARGE_TIME) fireCannon(s);
+    else if (held > 20) fireShot(s);
+  }
+}
+function advanceSlide() {
+  const isGate = slideIdx % 3 === 2;
+  if (isGate && slideIdx === 8) { startCountdownOrWait(); return; }
+  slideIdx++;
+  slideStart = now();
+  const strip = Math.floor(slideIdx / 3), k = slideIdx % 3;
+  if (strip < N_STRIPS) { lcdStripIntro(strip, k); onSlideAdvance(strip, k); }
+  else startCountdownOrWait();
+}
+
+// Pointer + keyboard bindings
+[["btn-blue",0],["btn-red",1],["btn-green",2]].forEach(([id, s]) => {
+  const el = document.getElementById(id);
+  el.addEventListener("pointerdown", e => { e.preventDefault(); el.setPointerCapture(e.pointerId); press(s); });
+  el.addEventListener("pointerup",   e => { e.preventDefault(); release(s); });
+  el.addEventListener("pointercancel", () => release(s));
+});
+const KEYMAP = { "1":0, "2":1, "3":2 };
+window.addEventListener("keydown", e => {
+  if (e.repeat) return;
+  if (e.key in KEYMAP) press(KEYMAP[e.key]);
+  else if (state === ST.CITY_SELECT) {
+    if (e.key === "ArrowLeft")  { press(0); release(0); }
+    if (e.key === "ArrowRight") { press(2); release(2); }
+    if (e.key === "Enter")      { press(1); release(1); }
+  } else if (e.key === "Enter" && (inSlides || state === ST.ATTRACT || inDemo)) { press(1); release(1); }
+});
+window.addEventListener("keyup", e => { if (e.key in KEYMAP) release(KEYMAP[e.key]); });
+
+/* ── UI controls ─────────────────────────────────────────────────────────── */
+document.querySelectorAll("#lang-ctl .chip").forEach(b => b.addEventListener("click", () => {
+  lang = b.dataset.lang;
+  document.querySelectorAll("#lang-ctl .chip").forEach(x => x.classList.toggle("on", x === b));
+  refreshLCDForState();
+}));
+function refreshLCDForState() {
+  if (state === ST.ATTRACT || inDemo) lcdAttract();
+  else if (state === ST.CITY_SELECT) lcdCitySelect();
+  else if (inSlides) lcdStripIntro(Math.floor(slideIdx/3), slideIdx%3);
+  else if (waitingScreen) lcdWaiting();
+  else if (inCountdown) lcdCountdown(countdownVal);
+  else if (heroDead) lcdDefeat();
+  else if (victory) lcdVictory();
+  else if (state === ST.GAME) lcdScore();
+}
+document.getElementById("snd-toggle").addEventListener("click", function() {
+  audioOn = !audioOn;
+  this.textContent = audioOn ? "🔊 Sound: on" : "🔇 Sound: off";
+  this.classList.toggle("on", audioOn);
+});
+
+/* ── rendering ───────────────────────────────────────────────────────────── */
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+let W = 0, H = 0, spacing = 6, topPad = 40, botPad = 30, stripX = [], dpr = 1;
+
+function layout() {
+  const availH = clamp(window.innerHeight - 160, 460, 900);
+  const availW = Math.min(window.innerWidth - 24, 340);
+  H = availH; W = availW;
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = W * dpr; cv.height = H * dpr;
+  cv.style.width = W + "px"; cv.style.height = H + "px";
+  spacing = (H - topPad - botPad) / N_LED;
+  stripX = [W * 0.22, W * 0.5, W * 0.78];
+}
+window.addEventListener("resize", layout);
+layout();
+
+const ledY = i => topPad + (N_LED - 1 - i) * spacing + spacing / 2;
+
+// Frame buffer: 3 × 100 RGB, rebuilt each frame like renderEnvironmentalDisplay()
+const buf = [new Array(N_LED), new Array(N_LED), new Array(N_LED)];
+function clearBuf() { for (let s = 0; s < N_STRIPS; s++) buf[s].fill(null); }
+function setLED(s, i, c)  { i |= 0; if (i >= 0 && i < N_LED) buf[s][i] = c; }
+function addLED(s, i, c)  { i |= 0; if (i >= 0 && i < N_LED) buf[s][i] = buf[s][i] ? addC(buf[s][i], c) : c.slice(); }
+
+function render() {
+  const t = now();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+
+  // Aluminum channels + turret housings
+  const chanW = Math.max(8, spacing * 1.4);
+  for (let s = 0; s < N_STRIPS; s++) {
+    const x = stripX[s];
+    ctx.fillStyle = "#0b0d10";
+    ctx.strokeStyle = "#383d44";
+    ctx.lineWidth = 1;
+    roundRect(x - chanW/2 - 3, topPad - 6, chanW + 6, H - topPad - botPad + 12, 5);
+    ctx.fill(); ctx.stroke();
+    // turret at top (hero housing)
+    ctx.fillStyle = "#1a1d21";
+    ctx.beginPath();
+    ctx.moveTo(x - chanW, topPad - 8);
+    ctx.lineTo(x + chanW, topPad - 8);
+    ctx.lineTo(x + chanW*0.55, topPad + 8);
+    ctx.lineTo(x - chanW*0.55, topPad + 8);
+    ctx.closePath(); ctx.fill();
+  }
+
+  buildFrame(t);
+
+  // LED pass — additive glow then bright core
+  ctx.globalCompositeOperation = "lighter";
+  const glowR = spacing * 2.1, coreR = Math.max(1.4, spacing * 0.42);
+  for (let s = 0; s < N_STRIPS; s++) {
+    const x = stripX[s];
+    for (let i = 0; i < N_LED; i++) {
+      const c = buf[s][i];
+      if (!c || (c[0] | c[1] | c[2]) === 0) continue;
+      const y = ledY(i);
+      const g = ctx.createRadialGradient(x, y, 0, x, y, glowR);
+      g.addColorStop(0, `rgba(${c[0]},${c[1]},${c[2]},0.55)`);
+      g.addColorStop(1, `rgba(${c[0]},${c[1]},${c[2]},0)`);
+      ctx.fillStyle = g;
+      ctx.fillRect(x - glowR, y - glowR, glowR*2, glowR*2);
+      const b = Math.max(c[0], c[1], c[2]) / 255;
+      ctx.fillStyle = `rgba(${Math.min(255,c[0]+140*b)},${Math.min(255,c[1]+140*b)},${Math.min(255,c[2]+140*b)},0.95)`;
+      ctx.beginPath(); ctx.arc(x, y, coreR, 0, 6.283); ctx.fill();
+    }
+  }
+  ctx.globalCompositeOperation = "source-over";
+
+  // Strip labels
+  ctx.font = "700 11px " + getComputedStyle(document.body).getPropertyValue("--mono");
+  ctx.textAlign = "center";
+  const labels = ["PM2.5", "NO₂", "O₃"], labCol = ["#5f7dff", "#ff6a5a", "#4ad06a"];
+  for (let s = 0; s < N_STRIPS; s++) {
+    ctx.fillStyle = labCol[s];
+    ctx.fillText(labels[s], stripX[s], H - 10);
+  }
+}
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+/* Frame construction — direct port of renderEnvironmentalDisplay() */
+const WHO_COL = [55, 60, 65];
+function buildFrame(t) {
+  clearBuf();
+
+  if (state === ST.ATTRACT && !inDemo) { renderAurora(t); return; }
+  if (state === ST.CITY_SELECT) { renderCityPreview(); return; }
+  if (state === ST.WAVE) { renderWave(); return; }
+
+  // Death flash: all strips red at 4 Hz
+  if (heroDead) {
+    const on = Math.floor((t - heroDeathAt) / 125) % 2 === 0;
+    if (on) for (let s = 0; s < N_STRIPS; s++) for (let i = 0; i < N_LED; i++) setLED(s, i, [255,0,0]);
+    return;
+  }
+  if (blackedOut) return;
+
+  // Victory rainbow wipe (first second)
+  if (victory) {
+    const el = t - victoryAt;
+    if (el <= RAINBOW_WIPE_MS) {
+      const hue = (t * 0.48) % 256;
+      const wp = el / RAINBOW_WIPE_MS * N_LED;
+      for (let i = 0; i <= wp && i < N_LED; i++) {
+        setLED(0, i, hsv255(hue + i*3, 255, 255));
+        setLED(1, i, hsv255(hue + i*3 + 85, 255, 255));
+        setLED(2, i, hsv255(hue + i*3 + 170, 255, 255));
+      }
+      return;
+    }
+  }
+
+  // WHO baseline pixels per phase
+  for (let s = 0; s < N_STRIPS; s++) {
+    if (stripDone[s]) continue;
+    if (state === ST.FALLING || state === ST.WAITING || state === ST.GAME) {
+      const ph = stripPhase[s];
+      if (state !== ST.GAME && ph === 0) {
+        let show = true;
+        if (blinkActive[s]) {
+          const be = t - blinkStart[s], total = SLIDE0_BLINKS * 2 * SLIDE0_HALF;
+          if (be < total) show = (be % (2 * SLIDE0_HALF)) < SLIDE0_HALF;
+          else blinkActive[s] = false;
+        }
+        if (show) for (let i = 0; i < N_LED; i++) setLED(s, i, WHO_COL);
+      } else if (state !== ST.GAME && ph === 1) {
+        if (!whoFlashing[s]) for (let i = 0; i < whoAnimPx[s]; i++) setLED(s, i, WHO_COL);
+      } else if (ph >= 2 || state === ST.GAME) {
+        for (let i = 0; i < whoBase[s]; i++) setLED(s, i, WHO_COL);
+      }
+    }
+  }
+
+  // Falling enemies with velocity trails
+  for (let s = 0; s < N_STRIPS; s++) {
+    for (const e of falling[s]) {
+      if (!e.active || e.settled || e.position < 0 || e.position >= N_LED) continue;
+      const c = getColor(e.color);
+      setLED(s, e.position, c);
+      if (e.velocity > 2) {
+        const tl = Math.min(3, Math.floor(e.velocity / 2));
+        for (let o = 1; o <= tl; o++) {
+          const f = 255 - 60*o;
+          setLED(s, e.position + o, scale8(c, Math.max(0, f)));
+        }
+      }
+    }
+  }
+
+  // Settled enemies — per-pollutant character animation
+  for (let s = 0; s < N_STRIPS; s++) {
+    let hideEnemies = wipes.some(w => w.strip === s);
+    if ((state === ST.FALLING || state === ST.WAITING) && stripPhase[s] < 2) hideEnemies = true;
+    if (hideEnemies) continue;
+    for (const e of enemies[s]) {
+      if (e.position < 0 || e.position >= N_LED) continue;
+      let c;
+      if (e.color === 1) {                       // PM2.5 — watery pulse
+        const p = Math.sin(t * 0.006 + e.position * 0.25) * 0.3 + 0.7;
+        c = [0, 0, 255 * p | 0];
+      } else if (e.color === 2) {                // NO2 — fiery flicker
+        if (Math.random() < 0.7) c = [255, 0, 0];
+        else { const fl = 200 + rndi(0, 55); c = [255, fl/6 | 0, 0]; }
+      } else {                                   // O3 — wave with extremes
+        const w = Math.sin(t * 0.01 + e.position * 0.1) * 0.5 + 0.5;
+        let g = 50 + w * 205 | 0;
+        const m = ((e.position | 0) + (t * 0.001 | 0)) % 10;
+        if (m < 3) g = 50; else if (m > 7) g = 255;
+        c = [0, g, 0];
+      }
+      if (e.health < e.maxHealth) c = scale8(c, 255 * e.health / e.maxHealth | 0);
+      if (e.sparkUntil > t) {
+        const sb = 128 + Math.sin(t * 0.05) * 127;
+        c = addC(c, [sb/3|0, sb/3|0, sb/3|0]);
+      }
+      setLED(s, e.position, c);
+    }
+  }
+
+  // Comets — orange head, white-hot tail
+  for (let s = 0; s < N_STRIPS; s++) {
+    const c = comets[s];
+    if (!c) continue;
+    const hp = c.position | 0;
+    if (hp < 0 || hp >= N_LED) continue;
+    let head = [255, 150, 0];
+    if (c.sparkUntil > t) { const p = 180 + Math.sin(t*0.08)*60; head = addC(head, [p/2|0, p/2|0, p/2|0]); }
+    addLED(s, hp, head);
+    for (let tl = 1; tl <= 4; tl++) {
+      const tp = hp - tl;
+      if (tp < 0) continue;
+      const fade = 200 - tl * 45;
+      addLED(s, tp, scale8([255, 120, 20], fade));
+      if (tl <= 2) addLED(s, tp, scale8([120, 120, 120], fade));
+    }
+  }
+
+  // Heroes — sparkle / charging pink / fully charged red blink
+  for (let s = 0; s < N_STRIPS; s++) {
+    if (stripDone[s]) continue;
+    const hp = heroPos[s] + recoil[s];
+    if (hp < 0 || hp >= N_LED) continue;
+    const isCh = charging[s] && state === ST.GAME;
+    const prog = isCh ? Math.min(1, (t - chargeAt[s]) / 1000) : 0;
+    if (isCh && prog < 1) {
+      const pulse = Math.sin(t * 0.03) * 0.5 + 0.5;
+      const br = 140 + pulse * 80 + prog * 35;
+      const c = scale8([255, 20, 147], br | 0);
+      const size = 1 + Math.floor(prog * 2);
+      for (let o = 0; o < size; o++) setLED(s, hp - o, c);
+    } else if (isCh) {
+      const blink = Math.sin(t * 0.08) * 0.5 + 0.5;
+      const c = scale8([255, 0, 0], 120 + blink * 135 | 0);
+      for (let o = 0; o < 3; o++) setLED(s, hp - o, c);
+    } else {
+      const sp = 200 + Math.sin(t * 0.08 + s * 1.2) * 30;
+      setLED(s, hp, scale8([255,255,255], sp | 0));
+    }
+  }
+
+  // Wipe effects — white chase from the bottom
+  for (const w of wipes)
+    for (let i = 0; i < w.position && i < N_LED; i++) setLED(w.strip, i, [255,255,255]);
+
+  // Fireworks
+  for (const fw of fireworks) {
+    if (fw.launch) {
+      const b = fw.brightness * 255 | 0;
+      setLED(fw.strip, fw.flarePos, [255, 240, b/4 | 0]);
+      for (let s5 = 0; s5 < 5; s5++)
+        if (fw.trailCol[s5] > 0) addLED(fw.strip, fw.trailPos[s5], scale8(heatColor(fw.trailCol[s5]), 240));
+    } else {
+      for (let s5 = 0; s5 < fw.exN; s5++) {
+        const cv2 = fw.exCol[s5];
+        if (cv2 <= 0) continue;
+        let c;
+        if (cv2 > COL_HI) { const f = (cv2 - COL_HI) / (255 - COL_HI); c = scale8([255, 255, 255*f|0], 240); }
+        else if (cv2 < COL_LO) { const f = cv2 / COL_LO; c = scale8([255*f|0, 0, 0], 220); }
+        else { const f = (cv2 - COL_LO) / (COL_HI - COL_LO); c = [255, 255*f|0, 0]; }
+        addLED(fw.strip, fw.exPos[s5], c);
+      }
+    }
+  }
+
+  // Shots — brightest thing on the strip
+  for (const sh of shots) {
+    if (sh.pos < 0 || sh.pos >= N_LED) continue;
+    const c = getColor(sh.color);
+    if (sh.cannon) { const p0 = Math.max(0, sh.pos|0); for (let p = p0; p <= Math.min(N_LED-1, p0+2); p++) setLED(sh.strip, p, c); }
+    else setLED(sh.strip, sh.pos, c);
+  }
+
+  // Impact sparks — additive
+  for (const sp of sparks)
+    if (sp.pos >= 0 && sp.pos < N_LED) addLED(sp.strip, sp.pos, scale8(getColor(sp.color), sp.br|0));
+}
+
+function renderAurora(t) {
+  const ts = t * 0.001;
+  const lo = [145, 196, 100], hi = [163, 213, 116];
+  for (let s = 0; s < N_STRIPS; s++) {
+    for (let px = 0; px < N_LED; px++) {
+      const pos = px / N_LED;
+      const w1 = Math.sin(pos*4 + ts*0.85 + s*1.3);
+      const w2 = Math.sin(pos*7 - ts*0.55 + s*0.9);
+      const w3 = Math.sin(pos*2 + ts*0.30 + s*2.4);
+      const comb = (w1*0.5 + w2*0.3 + w3*0.2 + 1) * 0.5;
+      const bright = comb * 255;
+      if (bright > 8) {
+        const drift = (Math.sin(ts*0.2 + pos*2 + s*0.7) + 1) * 0.5;
+        const hue = lo[s] + drift * (hi[s] - lo[s]);
+        const sat = 195 + drift * 45;
+        setLED(s, px, hsv255(hue, sat, clamp(bright|0, 8, 255)));
+      }
+    }
+  }
+}
+function renderCityPreview() {
+  const c = CITIES[cityIdx];
+  const totals = [clamp(c.pm25,1,N_LED-1), clamp(c.no2,1,N_LED-1), clamp(c.o3,1,N_LED-1)];
+  const full = [[0,0,180],[180,0,0],[0,180,0]];
+  for (let s = 0; s < N_STRIPS; s++) {
+    for (let px = 0; px < WHO[s]; px++) setLED(s, px, WHO_COL);
+    for (let px = WHO[s]; px < totals[s]; px++) setLED(s, px, full[s]);
+  }
+}
+function renderWave() {
+  waveUpdate();
+  const cols = [[0,0,255],[255,0,0],[0,255,0]];
+  for (let s = 0; s < N_STRIPS; s++) {
+    const x = STRIP_COLS[s];
+    for (let y = 0; y < N_LED; y++) {
+      const inten = clamp((waveH[x][y] + 1) * 127.5, 0, 255);
+      if (inten > 20) setLED(s, y, scale8(cols[s], inten|0));
+    }
+  }
+}
+
+/* ── boot ────────────────────────────────────────────────────────────────── */
+function frame() { update(); render(); requestAnimationFrame(frame); }
+lcdAttract();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

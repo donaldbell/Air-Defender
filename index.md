@@ -6,6 +6,12 @@ The project was originally started under the working title "1D Enviro Game", but
 
 Language: [English](./index.md) | [Español](./es/index.md)
 
+## Interactive simulation
+
+Try the browser-based version of Air Defender here:
+
+- [Play the interactive simulation](./web-sim/)
+
 ## Visual preview
 
 ![Air Defender Controller](assets/air-defender-controller.jpg)

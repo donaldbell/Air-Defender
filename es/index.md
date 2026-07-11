@@ -200,6 +200,12 @@ El juego usa valores de calidad del aire como base del diseño de los encuentros
 
 Este proyecto está pensado tanto como juego jugable como demostración de cómo los datos medioambientales pueden transformarse en una experiencia física interactiva.
 
+## Simulación interactiva
+
+Prueba la versión del juego en navegador aquí:
+
+- [Abrir la simulación interactiva](../web-sim/)
+
 ---
 
 Volver a la [versión en inglés](../index.md).
