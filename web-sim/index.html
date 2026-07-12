@@ -95,7 +95,7 @@
     margin-top: 18px;
     gap: 8px;
   }
-  .btn-pod { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+  .btn-pod { display: flex; flex-direction: column; align-items: center; gap: 14px; }
   .arcade-btn {
     width: clamp(62px, 17vw, 84px);
     height: clamp(62px, 17vw, 84px);
@@ -168,6 +168,21 @@
   @media (max-width: 760px) {
     #main { gap: 14px; }
   }
+  /* ── Compact mode: narrow phones need the controller to fit *below* the
+     strips without scrolling, so its own bezel has to give up some room. ── */
+  @media (max-width: 480px) {
+    #main { padding-top: 10px; gap: 8px; }
+    #controller { padding: 8px 10px 12px; width: min(320px, 92vw); }
+    #lcd-frame { padding: 6px 8px; }
+    #lcd { font-size: clamp(9px, 3vw, 12px); line-height: 1.4; padding: 5px 7px; min-height: calc(4 * 1.4em + 10px); }
+    #buttons { margin-top: 8px; gap: 4px; }
+    .btn-pod { gap: 10px; }
+    .arcade-btn { width: clamp(42px, 15vw, 58px); height: clamp(42px, 15vw, 58px); box-shadow: 0 4px 0 #050505, 0 6px 8px rgba(0,0,0,0.5); }
+    .btn-label { font-size: 9px; }
+    #footer { padding: 6px 10px 10px; gap: 6px 12px; font-size: 10px; }
+    #kbd-hint { display: none; }
+    #credit { padding: 2px 12px 14px; font-size: 10px; }
+  }
 </style>
 </head>
 <body>
@@ -195,7 +210,7 @@
 </div>
 
 <div id="footer">
-  <span class="ctl">Keys: <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> · tap = fire · hold 2s = cannon</span>
+  <span class="ctl" id="kbd-hint">Keys: <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> · tap = fire · hold 2s = cannon</span>
   <span class="ctl" id="lang-ctl">
     <button class="chip on" data-lang="en">EN</button>
     <button class="chip" data-lang="es">ES</button>
@@ -1161,9 +1176,27 @@ const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
 let W = 0, H = 0, spacing = 6, topPad = 40, botPad = 30, stripX = [], dpr = 1;
 
 function layout() {
-  const availH = clamp(window.innerHeight - 160, 460, 900);
-  const availW = Math.min(window.innerWidth - 24, 340);
-  H = availH; W = availW;
+  const vh = (window.visualViewport ? window.visualViewport.height : window.innerHeight);
+  const stacked = window.innerWidth < 700;  // controller drops below the strips at this width
+  if (stacked) {
+    // On a phone the controller and footer sit *below* the strips, not beside
+    // them — so the canvas has to give up exactly as much room as those
+    // elements actually take, not a guessed constant. Measure them live
+    // (their compact-mode CSS has already applied at this point) and hand
+    // the canvas whatever's left, so the whole page fits one screen.
+    const controllerH = document.getElementById("controller").offsetHeight;
+    const footerH = document.getElementById("footer").offsetHeight;
+    const creditH = document.getElementById("credit").offsetHeight;
+    const mainPadTop = 10, gaps = 8 + 8;   // matches compact-mode #main padding-top + two flex gaps
+    const reserved = controllerH + footerH + creditH + mainPadTop + gaps;
+    H = clamp(vh - reserved, 260, 640);
+    W = Math.min(window.innerWidth - 24, 300);
+    topPad = H < 380 ? 22 : 30; botPad = H < 380 ? 16 : 22;
+  } else {
+    H = clamp(window.innerHeight - 160, 460, 900);
+    W = Math.min(window.innerWidth - 24, 340);
+    topPad = 40; botPad = 30;
+  }
   dpr = Math.min(window.devicePixelRatio || 1, 2);
   cv.width = W * dpr; cv.height = H * dpr;
   cv.style.width = W + "px"; cv.style.height = H + "px";
@@ -1171,6 +1204,7 @@ function layout() {
   stripX = [W * 0.22, W * 0.5, W * 0.78];
 }
 window.addEventListener("resize", layout);
+if (window.visualViewport) window.visualViewport.addEventListener("resize", layout);
 layout();
 
 const ledY = i => topPad + (N_LED - 1 - i) * spacing + spacing / 2;
