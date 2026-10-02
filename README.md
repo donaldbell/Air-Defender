@@ -173,7 +173,7 @@ This project uses PlatformIO.
 
 ### Set up your air quality API token
 
-Live air-quality data comes from the free [WAQI](https://aqicn.org/data-platform/token/) API. Register there for your own token, then paste it into `API_KEY` in `include/game_config.h` (used by the firmware and the controller's web UI) and into `WAQI_TOKEN` in `web-sim/index.html` if you're running the browser simulator. The repo does not ship a working token — without one, the project falls back to the hardcoded default AQI values baked into the code.
+Live air-quality data comes from the free [WAQI](https://aqicn.org/data-platform/token/) API. If you're building the firmware, register there for your own token and paste it into `API_KEY` in `include/game_config.h` (shared by both boards' firmware and the controller's web UI) — the repo does not ship a working token for the firmware, so without one the project falls back to the hardcoded default AQI values baked into the code. The browser simulator (`web-sim/index.html`) is a separate case: the hosted version intentionally ships with a live demo token (free-tier, no billing attached) so it works for visitors with no setup — if you fork the project for your own long-running copy, swap in your own token there too.
 
 ### Build all environments
 
