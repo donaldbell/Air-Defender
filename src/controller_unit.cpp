@@ -521,7 +521,7 @@ void handleRoot() {
     html += "<script>";
     html += "const CITY_SLUGS = ['sydney','london','barcelona','new-york','mexico-city','shanghai','mumbai','delhi'];";
     html += "const CITY_NAMES = ['Sydney','London','Barcelona','New York','Mexico City','Shanghai','Mumbai','Delhi'];";
-    html += "const AQI_TOKEN = 'c96c0076ad7616b27dcd240b92f25f40703abe28';";
+    html += "const AQI_TOKEN = '" API_KEY "';";  // pulled from game_config.h — set your own token there
     // Convert US EPA PM2.5 AQI sub-index to actual ug/m3 concentration
     html += "function aqiToPm25(a){const b=[[0,50,0,12],[51,100,12.1,35.4],[101,150,35.5,55.4],[151,200,55.5,150.4],[201,300,150.5,250.4],[301,400,250.5,350.4]];for(const[il,ih,cl,ch]of b){if(a>=il&&a<=ih)return Math.round(cl+(ch-cl)*(a-il)/(ih-il));}return Math.round(a*0.24);}";
     html += "function setLanguage() {";

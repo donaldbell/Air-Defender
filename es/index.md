@@ -146,6 +146,10 @@ El idioma seleccionado se puede cambiar mediante la interfaz de configuración d
 
 Este proyecto usa PlatformIO.
 
+### Configura tu token de la API de calidad del aire
+
+Los datos de calidad del aire en vivo provienen de la API gratuita de [WAQI](https://aqicn.org/data-platform/token/). Regístrate allí para obtener tu propio token y pégalo en `API_KEY` dentro de `include/game_config.h` (usado por el firmware y la interfaz web del controlador), así como en `WAQI_TOKEN` dentro de `web-sim/index.html` si vas a usar el simulador en el navegador. El repositorio no incluye un token funcional — sin uno, el proyecto usa los valores de AQI predeterminados integrados en el código.
+
 ### Compilar todos los entornos
 
 ```bash

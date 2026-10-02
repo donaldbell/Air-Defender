@@ -196,8 +196,10 @@ struct AirQualityData {
 };
 
 // Air Quality API Configuration
+// Get your own free token at https://aqicn.org/data-platform/token/ and paste it below.
+// Do not commit a real token to a public repo — treat it like a password.
 #define API_BASE_URL "http://api.waqi.info/feed/"
-#define API_KEY "c96c0076ad7616b27dcd240b92f25f40703abe28"  // TODO: Replace with your AQICN API token from https://aqicn.org/data-platform/token/
+#define API_KEY "YOUR_WAQI_TOKEN_HERE"
 #define UPDATE_INTERVAL 3600000  // Update every hour (3600000 ms)
 
 struct EnvironmentalShot {

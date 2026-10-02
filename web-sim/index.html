@@ -275,7 +275,9 @@ const CITIES = [
 // data can overwrite CITIES — used as a stabilizing anchor so one noisy or
 // unusually calm live reading doesn't swing a city's whole character.
 const FALLBACK_ANCHOR = CITIES.map(c => ({ pm25: c.pm25, no2: c.no2, o3: c.o3 }));
-const WAQI_TOKEN = "c96c0076ad7616b27dcd240b92f25f40703abe28";
+// Get your own free token at https://aqicn.org/data-platform/token/ and paste it below.
+// Without a token, live data fetches will fail and the simulator falls back to the hardcoded city values above.
+const WAQI_TOKEN = "YOUR_WAQI_TOKEN_HERE";
 
 /* ── strings.h — EN / ES / CA (CGRAM accent codes rendered as Unicode) ───── */
 const STR = {

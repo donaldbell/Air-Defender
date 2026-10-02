@@ -154,6 +154,10 @@ The selected language can be changed through the controller configuration interf
 
 This project uses PlatformIO.
 
+### Set up your air quality API token
+
+Live air-quality data comes from the free [WAQI](https://aqicn.org/data-platform/token/) API. Register there for your own token, then paste it into `API_KEY` in `include/game_config.h` (used by the firmware and the controller's web UI) and into `WAQI_TOKEN` in `web-sim/index.html` if you're running the browser simulator. The repo does not ship a working token — without one, the project falls back to the hardcoded default AQI values baked into the code.
+
 ### Build all environments
 
 ```bash
