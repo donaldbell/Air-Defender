@@ -24,10 +24,6 @@ Demostración de instalación en pared.
 
 Pantalla vertical completa con la marca Air Defender.
 
-![Player interaction](../assets/air-defender-player.jpg)
-
-Jugadora usando el controlador para limpiar el aire.
-
 ## Demo
 
 Mira una breve demostración de Air Defender en acción:

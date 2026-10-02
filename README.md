@@ -24,10 +24,6 @@ Controller and LCD interface for Air Defender.
 
 Full vertical display with the Air Defender branding.
 
-![Player interaction](assets/air-defender-player.jpg)
-
-It's me, showing how the controller can be picked up and used wirelessly.
-
 ## Demo
 
 Watch a short demo of Air Defender in action: https://youtube.com/shorts/qmZg_ptcQ0Y?feature=share
