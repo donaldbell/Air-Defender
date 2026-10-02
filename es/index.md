@@ -12,25 +12,17 @@ El proyecto comenzó con el nombre provisional de "1D Enviro Game", pero ahora s
 
 Controlador e interfaz LCD de Air Defender.
 
-![LED strip demo](../assets/air-defender-strip-demo.jpg)
-
-Tres carriles LED se iluminan según el estado de los contaminantes.
-
-![Installation view](../assets/air-defender-installation.jpg)
-
-Demostración de instalación en pared.
-
 ![Wall display](../assets/air-defender-wall-display.jpg)
 
 Pantalla vertical completa con la marca Air Defender.
 
 ## Demo
 
-Mira una breve demostración de Air Defender en acción:
+Mira una breve demostración de Air Defender en acción a continuación.
 
-[![Ver demo](../assets/air-defender-demo.gif)](https://youtube.com/shorts/qmZg_ptcQ0Y?feature=share)
+<iframe width="560" height="315" src="https://www.youtube.com/embed/qmZg_ptcQ0Y" title="Air Defender demo" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
 
-Haz clic en la vista previa animada para abrir el video completo en YouTube.
+<p>El video está alojado en YouTube; usa el reproductor de arriba o ábrelo directamente en <a href="https://youtube.com/shorts/qmZg_ptcQ0Y?feature=share">YouTube</a>.</p>
 
 ## ¿Qué hace el juego?
 
